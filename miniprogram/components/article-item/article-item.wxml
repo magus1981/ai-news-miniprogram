@@ -1,0 +1,8 @@
+<view class="article-item" bindtap="onTap">
+  <view class="article-title">{{article.title}}</view>
+  <view class="article-meta">
+    <text class="article-source">{{article.source_name}}</text>
+    <text class="article-tag tag tag-{{article.category}}">{{article.category}}</text>
+    <text wx:if="{{article.is_featured}}" class="article-hot">精选</text>
+  </view>
+</view>

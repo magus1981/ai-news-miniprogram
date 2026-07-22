@@ -1,0 +1,14 @@
+{
+  "name": "ai-news-miniprogram",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI前沿资讯微信小程序 - 本地开发环境",
+  "scripts": {
+    "server": "node local-server.mjs",
+    "collect": "cd pipeline && node collect.mjs",
+    "init-db": "cd pipeline && node collect.mjs --init"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}

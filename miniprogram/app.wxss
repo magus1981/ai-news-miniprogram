@@ -1,0 +1,75 @@
+/* 全局样式 */
+page {
+  --color-primary: #1a1a2e;
+  --color-accent: #4a6cf7;
+  --color-bg: #f5f6fa;
+  --color-card: #ffffff;
+  --color-text: #2d3748;
+  --color-text-secondary: #718096;
+  --color-border: #e2e8f0;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 28rpx;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  line-height: 1.6;
+}
+
+/* 通用容器 */
+.container {
+  padding: 24rpx;
+}
+
+/* 卡片基础样式 */
+.card {
+  background: var(--color-card);
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+}
+
+/* 分类标签 */
+.tag {
+  display: inline-block;
+  font-size: 22rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 6rpx;
+  background: #edf2f7;
+  color: var(--color-text-secondary);
+}
+
+.tag-company { background: #ebf8ff; color: #2b6cb0; }
+.tag-technology { background: #f0fff4; color: #276749; }
+.tag-opensource { background: #faf5ff; color: #6b46c1; }
+.tag-funding { background: #fffaf0; color: #c05621; }
+.tag-opinion { background: #fff5f5; color: #c53030; }
+.tag-policy { background: #f7fafc; color: #4a5568; }
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80rpx 40rpx;
+  color: var(--color-text-secondary);
+}
+
+.empty-state .empty-icon {
+  font-size: 64rpx;
+  margin-bottom: 16rpx;
+}
+
+.empty-state .empty-text {
+  font-size: 26rpx;
+}
+
+/* 加载状态 */
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 40rpx;
+  color: var(--color-text-secondary);
+  font-size: 24rpx;
+}

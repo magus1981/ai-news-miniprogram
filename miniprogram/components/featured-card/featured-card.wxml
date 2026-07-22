@@ -1,0 +1,8 @@
+<view class="featured-card" bindtap="onTap">
+  <view class="featured-badge">必读</view>
+  <view class="featured-title">{{article.title}}</view>
+  <view class="featured-meta">
+    <text class="featured-source">{{article.source_name}}</text>
+    <text class="featured-tag tag tag-{{article.category}}">{{article.category}}</text>
+  </view>
+</view>

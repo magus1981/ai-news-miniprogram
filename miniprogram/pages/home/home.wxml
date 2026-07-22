@@ -1,0 +1,72 @@
+<view class="home-page">
+  <!-- 今日必读区域（深色背景） -->
+  <view class="featured-section" wx:if="{{featuredArticles.length > 0}}">
+    <view class="section-header">
+      <text class="section-title">今日必读</text>
+      <text class="section-date">{{date}}</text>
+    </view>
+    <scroll-view scroll-x class="featured-scroll">
+      <view class="featured-list">
+        <featured-card
+          wx:for="{{featuredArticles}}"
+          wx:key="id"
+          article="{{item}}"
+        />
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 分类Tab -->
+  <view class="category-tabs">
+    <scroll-view scroll-x class="tabs-scroll">
+      <view class="tabs-inner">
+        <view
+          wx:for="{{categories}}"
+          wx:key="key"
+          class="tab-item {{activeCategory === item.key ? 'tab-active' : ''}}"
+          data-key="{{item.key}}"
+          bindtap="onCategoryChange"
+        >
+          {{item.label}}
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 文章列表 -->
+  <view class="article-list">
+    <!-- 加载中 -->
+    <view wx:if="{{loading}}" class="loading">
+      <text>加载中...</text>
+    </view>
+
+    <!-- 错误提示 -->
+    <view wx:elif="{{error}}" class="empty-state">
+      <text class="empty-icon">⚠️</text>
+      <text class="empty-text">{{error}}</text>
+    </view>
+
+    <!-- 空状态 -->
+    <view wx:elif="{{articles.length === 0}}" class="empty-state">
+      <text class="empty-icon">📭</text>
+      <text class="empty-text">今日暂无{{activeCategory === 'all' ? '' : '该分类'}}资讯</text>
+    </view>
+
+    <!-- 文章列表 -->
+    <block wx:else>
+      <article-item
+        wx:for="{{articles}}"
+        wx:key="id"
+        article="{{item}}"
+      />
+
+      <!-- 加载更多 -->
+      <view wx:if="{{loadingMore}}" class="loading">
+        <text>加载更多...</text>
+      </view>
+      <view wx:elif="{{!hasMore && articles.length > 0}}" class="loading">
+        <text>— 已经到底了 —</text>
+      </view>
+    </block>
+  </view>
+</view>

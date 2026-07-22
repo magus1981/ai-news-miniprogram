@@ -1,0 +1,100 @@
+.profile-page {
+  min-height: 100vh;
+  background: #f5f6fa;
+}
+
+.profile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 32rpx;
+  background: #ffffff;
+  border-bottom: 1rpx solid #e2e8f0;
+}
+
+.profile-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+.profile-count {
+  font-size: 24rpx;
+  color: #a0aec0;
+}
+
+/* 收藏列表 */
+.favorite-list {
+  padding: 24rpx;
+}
+
+.favorite-item {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border-radius: 12rpx;
+  padding: 24rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.03);
+}
+
+.favorite-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.favorite-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: #2d3748;
+  line-height: 1.4;
+  margin-bottom: 8rpx;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.favorite-meta {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.favorite-source {
+  font-size: 22rpx;
+  color: #a0aec0;
+}
+
+.favorite-remove {
+  flex-shrink: 0;
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5e0;
+  font-size: 28rpx;
+  margin-left: 16rpx;
+}
+
+/* 关于 */
+.about-section {
+  margin: 40rpx 24rpx;
+  padding: 32rpx;
+  background: #ffffff;
+  border-radius: 12rpx;
+}
+
+.about-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #4a5568;
+  margin-bottom: 16rpx;
+}
+
+.about-text {
+  font-size: 24rpx;
+  color: #a0aec0;
+  line-height: 1.8;
+}

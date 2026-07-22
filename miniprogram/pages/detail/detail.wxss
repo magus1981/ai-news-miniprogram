@@ -1,0 +1,128 @@
+.detail-page {
+  min-height: 100vh;
+  background: #ffffff;
+  padding-bottom: 140rpx;
+}
+
+/* 文章头部 */
+.article-header {
+  padding: 40rpx 32rpx 24rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.article-title {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #1a202c;
+  line-height: 1.5;
+  margin-bottom: 20rpx;
+}
+
+.article-info {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-wrap: wrap;
+}
+
+.info-source {
+  font-size: 24rpx;
+  color: #4a6cf7;
+  font-weight: 500;
+}
+
+.info-dot {
+  color: #cbd5e0;
+}
+
+.info-time {
+  font-size: 24rpx;
+  color: #a0aec0;
+}
+
+.info-tag {
+  margin-left: 8rpx;
+}
+
+.original-title {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #a0aec0;
+  font-style: italic;
+}
+
+/* AI总结区域 */
+.summary-section {
+  padding: 32rpx;
+}
+
+.summary-label {
+  display: inline-block;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #4a6cf7;
+  background: #ebf4ff;
+  padding: 6rpx 16rpx;
+  border-radius: 6rpx;
+  margin-bottom: 24rpx;
+}
+
+.summary-content {
+  font-size: 30rpx;
+  color: #2d3748;
+  line-height: 1.9;
+  text-align: justify;
+  white-space: pre-wrap;
+}
+
+/* 底部操作栏 */
+.action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 16rpx;
+  padding: 20rpx 32rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  background: #ffffff;
+  border-top: 1rpx solid #e2e8f0;
+  box-shadow: 0 -4rpx 12rpx rgba(0, 0, 0, 0.05);
+}
+
+.action-btn {
+  flex: 1;
+  font-size: 26rpx;
+  padding: 18rpx 0;
+  border-radius: 12rpx;
+  text-align: center;
+  border: none;
+  line-height: 1.4;
+}
+
+.action-btn::after {
+  border: none;
+}
+
+.action-original {
+  background: #1a1a2e;
+  color: #ffffff;
+}
+
+.action-favorite {
+  background: #f7fafc;
+  color: #4a5568;
+  border: 1rpx solid #e2e8f0;
+}
+
+.action-favorited {
+  background: #fff5f5;
+  color: #e53e3e;
+  border: 1rpx solid #fed7d7;
+}
+
+.action-share {
+  background: #f0fff4;
+  color: #276749;
+  border: 1rpx solid #c6f6d5;
+}

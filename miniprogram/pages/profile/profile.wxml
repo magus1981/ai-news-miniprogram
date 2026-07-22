@@ -1,0 +1,47 @@
+<view class="profile-page">
+  <!-- 页面标题 -->
+  <view class="profile-header">
+    <text class="profile-title">我的收藏</text>
+    <text class="profile-count">{{favorites.length}} 篇</text>
+  </view>
+
+  <!-- 收藏列表 -->
+  <view wx:if="{{favorites.length > 0}}" class="favorite-list">
+    <view
+      wx:for="{{favorites}}"
+      wx:key="id"
+      class="favorite-item"
+      data-id="{{item.id}}"
+      bindtap="onTapArticle"
+    >
+      <view class="favorite-content">
+        <view class="favorite-title">{{item.title}}</view>
+        <view class="favorite-meta">
+          <text class="favorite-source">{{item.source_name}}</text>
+          <text class="favorite-tag tag tag-{{item.category}}">{{item.category}}</text>
+        </view>
+      </view>
+      <view
+        class="favorite-remove"
+        data-id="{{item.id}}"
+        catchtap="onRemoveFavorite"
+      >
+        ✕
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view wx:else class="empty-state">
+    <text class="empty-icon">⭐</text>
+    <text class="empty-text">暂无收藏，去首页看看吧</text>
+  </view>
+
+  <!-- 关于 -->
+  <view class="about-section">
+    <view class="about-title">关于</view>
+    <view class="about-text">AI前沿资讯 v1.0.0</view>
+    <view class="about-text">每日精选10-20条全球AI重要资讯</view>
+    <view class="about-text">由AI自动采集、筛选、总结</view>
+  </view>
+</view>

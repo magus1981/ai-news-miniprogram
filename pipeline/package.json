@@ -1,0 +1,16 @@
+{
+  "name": "ai-news-pipeline",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AI News collection pipeline: RSS -> AI filter -> AI summary -> Turso",
+  "scripts": {
+    "collect": "node collect.mjs",
+    "init-db": "node init-db.mjs"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "better-sqlite3": "^12.11.1",
+    "cheerio": "^1.2.0",
+    "rss-parser": "^3.13.0"
+  }
+}

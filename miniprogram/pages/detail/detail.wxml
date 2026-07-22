@@ -1,0 +1,50 @@
+<view class="detail-page">
+  <!-- 加载中 -->
+  <view wx:if="{{loading}}" class="loading">
+    <text>加载中...</text>
+  </view>
+
+  <!-- 错误 -->
+  <view wx:elif="{{error}}" class="empty-state">
+    <text class="empty-icon">⚠️</text>
+    <text class="empty-text">{{error}}</text>
+  </view>
+
+  <!-- 文章内容 -->
+  <block wx:elif="{{article}}">
+    <view class="article-header">
+      <view class="article-title">{{article.title}}</view>
+      <view class="article-info">
+        <text class="info-source">{{article.source_name}}</text>
+        <text class="info-dot">·</text>
+        <text class="info-time">{{article.published_at}}</text>
+        <text class="info-tag tag tag-{{article.category}}">{{article.category}}</text>
+      </view>
+      <view wx:if="{{article.original_title}}" class="original-title">
+        原标题：{{article.original_title}}
+      </view>
+    </view>
+
+    <!-- AI精华总结 -->
+    <view class="summary-section">
+      <view class="summary-label">AI 精华总结</view>
+      <view class="summary-content">{{article.summary || '暂无总结'}}</view>
+    </view>
+
+    <!-- 底部操作栏 -->
+    <view class="action-bar">
+      <button class="action-btn action-original" bindtap="openOriginal">
+        阅读原文
+      </button>
+      <button
+        class="action-btn {{isFavorited ? 'action-favorited' : 'action-favorite'}}"
+        bindtap="toggleFavorite"
+      >
+        {{isFavorited ? '已收藏' : '收藏'}}
+      </button>
+      <button class="action-btn action-share" open-type="share">
+        分享
+      </button>
+    </view>
+  </block>
+</view>
