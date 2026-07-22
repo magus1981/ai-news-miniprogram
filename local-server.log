@@ -1,9 +1,0 @@
-数据库已连接: D:\20260402qoder\ai-news-miniprogram\data\articles.db
-
-本地API服务器已启动: http://localhost:3000
-接口列表:
-  GET /api/featured?date=YYYY-MM-DD
-  GET /api/articles?category=&date=&page=
-  GET /api/article/:id
-
-小程序开发时请确保此服务器运行中
