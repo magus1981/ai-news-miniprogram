@@ -1,8 +1,9 @@
 /**
- * GET /api/articles?category=&date=&page=&limit=
- * 分页分类文章列表
+ * GET /api/articles?category=&date=&page=&limit=&tag=
+ * 分页分类文章列表；tag参数匹配tags JSON任一数组包含该值；date=all 表示不限日期
  */
 const { getDB } = require('../lib/db');
+const { parseTags, tagLikePattern } = require('../lib/tags');
 
 const PAGE_SIZE = 20;
 
@@ -16,42 +17,32 @@ module.exports = async (req, res) => {
 
   try {
     const db = getDB();
-    const { category, date, page = '1', limit } = req.query;
+    const { category, date, page = '1', limit, tag } = req.query;
     const pageNum = Math.max(1, parseInt(page));
     const pageSize = Math.min(50, parseInt(limit) || PAGE_SIZE);
     const offset = (pageNum - 1) * pageSize;
-    const dateKey = date || new Date().toISOString().split('T')[0];
+    const dateKey = date === 'all' ? null : (date || new Date().toISOString().split('T')[0]);
 
-    let sql, args;
+    // 动态拼接WHERE条件
+    const where = [];
+    const args = [];
+    if (dateKey) { where.push('date_key = ?'); args.push(dateKey); }
+    if (category && category !== 'all') { where.push('category = ?'); args.push(category); }
+    if (tag) { where.push('tags LIKE ?'); args.push(tagLikePattern(tag)); }
+    const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    if (category && category !== 'all') {
-      sql = `SELECT id, title, source_name, source_url, category, ai_score, is_featured, published_at
-             FROM articles 
-             WHERE date_key = ? AND category = ?
-             ORDER BY ai_score DESC
-             LIMIT ? OFFSET ?`;
-      args = [dateKey, category, pageSize, offset];
-    } else {
-      sql = `SELECT id, title, source_name, source_url, category, ai_score, is_featured, published_at
-             FROM articles 
-             WHERE date_key = ?
-             ORDER BY ai_score DESC
-             LIMIT ? OFFSET ?`;
-      args = [dateKey, pageSize, offset];
-    }
+    const result = await db.execute({
+      sql: `SELECT id, title, source_name, source_url, category, ai_score, is_featured, published_at, tags
+            FROM articles ${whereSQL}
+            ORDER BY date_key DESC, ai_score DESC
+            LIMIT ? OFFSET ?`,
+      args: [...args, pageSize, offset],
+    });
 
-    const result = await db.execute({ sql, args });
-
-    // 获取总数
-    let countSql, countArgs;
-    if (category && category !== 'all') {
-      countSql = `SELECT COUNT(*) as total FROM articles WHERE date_key = ? AND category = ?`;
-      countArgs = [dateKey, category];
-    } else {
-      countSql = `SELECT COUNT(*) as total FROM articles WHERE date_key = ?`;
-      countArgs = [dateKey];
-    }
-    const countResult = await db.execute({ sql: countSql, args: countArgs });
+    const countResult = await db.execute({
+      sql: `SELECT COUNT(*) as total FROM articles ${whereSQL}`,
+      args,
+    });
     const total = countResult.rows[0]?.total || 0;
 
     const articles = result.rows.map(row => ({
@@ -63,11 +54,13 @@ module.exports = async (req, res) => {
       ai_score: row.ai_score,
       is_featured: !!row.is_featured,
       published_at: row.published_at,
+      tags: parseTags(row.tags),
     }));
 
     res.status(200).json({
-      date: dateKey,
+      date: dateKey || 'all',
       category: category || 'all',
+      tag: tag || null,
       page: pageNum,
       page_size: pageSize,
       total,

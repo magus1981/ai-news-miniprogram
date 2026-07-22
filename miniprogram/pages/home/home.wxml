@@ -33,6 +33,22 @@
     </scroll-view>
   </view>
 
+  <!-- 热门子标签横滑条（仅公司/观点分类显示） -->
+  <view class="hot-tags-row" wx:if="{{hotTags.length > 0}}">
+    <scroll-view scroll-x class="hot-tags-scroll" enhanced show-scrollbar="{{false}}">
+      <view class="hot-tags-inner">
+        <text
+          wx:for="{{hotTags}}"
+          wx:key="name"
+          class="hot-tag-chip"
+          data-tag="{{item.name}}"
+          data-type="{{item.type}}"
+          bindtap="onHotTagTap"
+        >#{{item.name}}</text>
+      </view>
+    </scroll-view>
+  </view>
+
   <!-- 文章列表 -->
   <view class="article-list">
     <!-- 加载中 -->

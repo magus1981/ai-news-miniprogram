@@ -31,9 +31,17 @@ Page({
     }
   },
 
+  // 子标签chip点击，跳标签归类页
+  onTagTap(e) {
+    const { tag, type } = e.currentTarget.dataset;
+    if (!tag) return;
+    wx.navigateTo({
+      url: `/pages/tag/tag?tag=${encodeURIComponent(tag)}&type=${type || 'company'}`,
+    });
+  },
+
   // 收藏/取消收藏
-  toggleFavorite() {
-    const { article, isFavorited } = this.data;
+  toggleFavorite() {    const { article, isFavorited } = this.data;
     if (!article) return;
 
     if (isFavorited) {

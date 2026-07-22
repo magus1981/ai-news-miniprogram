@@ -1,3 +1,4 @@
+<wxs src="../../utils/fmt.wxs" module="fmt" />
 <view class="profile-page">
   <!-- 页面标题 -->
   <view class="profile-header">
@@ -18,7 +19,7 @@
         <view class="favorite-title">{{item.title}}</view>
         <view class="favorite-meta">
           <text class="favorite-source">{{item.source_name}}</text>
-          <text class="favorite-tag tag tag-{{item.category}}">{{item.category}}</text>
+          <text class="favorite-tag tag tag-{{item.category}}">{{fmt.categoryLabel(item.category)}}</text>
         </view>
       </view>
       <view

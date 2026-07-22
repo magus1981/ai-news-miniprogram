@@ -51,6 +51,65 @@
   font-style: italic;
 }
 
+/* 子标签组 */
+.detail-subtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 20rpx;
+}
+
+.subtag-chip {
+  font-size: 22rpx;
+  color: #4a6cf7;
+  background: #f7faff;
+  border: 1rpx solid #c7d7fe;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+}
+
+.subtag-chip-people {
+  color: #805ad5;
+  background: #faf5ff;
+  border-color: #d6bcfa;
+}
+
+/* 核心要点 */
+.keypoints-section {
+  padding: 32rpx 32rpx 0;
+}
+
+.keypoints-label {
+  display: inline-block;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #dd6b20;
+  background: #fffaf0;
+  padding: 6rpx 16rpx;
+  border-radius: 6rpx;
+  margin-bottom: 20rpx;
+}
+
+.keypoint-item {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 14rpx;
+}
+
+.keypoint-dot {
+  color: #dd6b20;
+  font-size: 28rpx;
+  margin-right: 12rpx;
+  line-height: 1.7;
+}
+
+.keypoint-text {
+  flex: 1;
+  font-size: 28rpx;
+  color: #4a5568;
+  line-height: 1.7;
+}
+
 /* AI总结区域 */
 .summary-section {
   padding: 32rpx;

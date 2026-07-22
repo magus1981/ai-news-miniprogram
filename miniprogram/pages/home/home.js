@@ -1,10 +1,10 @@
-const { getFeatured, getArticles } = require('../../utils/api');
+const { getFeatured, getArticles, getTags } = require('../../utils/api');
 
 const CATEGORIES = [
   { key: 'all', label: '全部' },
-  { key: 'company', label: '公司动态' },
-  { key: 'technology', label: '技术突破' },
-  { key: 'opensource', label: '开源项目' },
+  { key: 'company', label: '公司' },
+  { key: 'technology', label: '技术' },
+  { key: 'opensource', label: '开源' },
   { key: 'funding', label: '融资' },
   { key: 'opinion', label: '观点' },
   { key: 'policy', label: '政策' },
@@ -22,6 +22,7 @@ Page({
     page: 1,
     date: '',
     error: '',
+    hotTags: [], // 热门子标签（仅公司/观点分类显示）
   },
 
   onLoad() {
@@ -63,7 +64,7 @@ Page({
     } catch (err) {
       this.setData({
         loading: false,
-        error: '加载失败，请下拉刷新重试',
+        error: `加载失败: ${(err && err.message) || err}`,
       });
       console.error('加载数据失败:', err);
     }
@@ -103,6 +104,41 @@ Page({
       hasMore: true,
     });
     this.loadArticlesByCategory();
+    this.updateHotTags();
+  },
+
+  // 公司/观点分类时加载热门子标签（Top 10）
+  async updateHotTags() {
+    const { activeCategory } = this.data;
+    const key = activeCategory === 'company' ? 'companies'
+      : activeCategory === 'opinion' ? 'people'
+      : null;
+
+    if (!key) {
+      if (this.data.hotTags.length) this.setData({ hotTags: [] });
+      return;
+    }
+
+    try {
+      if (!this._tagsCache) {
+        this._tagsCache = await getTags();
+      }
+      const list = (this._tagsCache[key] || []).slice(0, 10)
+        .map(t => ({ name: t.name, type: activeCategory }));
+      this.setData({ hotTags: list });
+    } catch (err) {
+      console.error('热门标签加载失败:', err);
+      this.setData({ hotTags: [] });
+    }
+  },
+
+  // 热门子标签点击，跳标签归类页
+  onHotTagTap(e) {
+    const { tag, type } = e.currentTarget.dataset;
+    if (!tag) return;
+    wx.navigateTo({
+      url: `/pages/tag/tag?tag=${encodeURIComponent(tag)}&type=${type || 'company'}`,
+    });
   },
 
   async loadArticlesByCategory() {

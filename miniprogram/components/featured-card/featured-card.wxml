@@ -1,8 +1,24 @@
+<wxs src="../../utils/fmt.wxs" module="fmt" />
 <view class="featured-card" bindtap="onTap">
   <view class="featured-badge">必读</view>
   <view class="featured-title">{{article.title}}</view>
   <view class="featured-meta">
     <text class="featured-source">{{article.source_name}}</text>
-    <text class="featured-tag tag tag-{{article.category}}">{{article.category}}</text>
+    <text class="featured-tag tag tag-{{article.category}}">{{fmt.categoryLabel(article.category)}}</text>
+    <!-- 子标签chip：公司类显示公司名，观点类显示人物名，catchtap阻止卡片跳转 -->
+    <text
+      wx:if="{{article.category === 'company' && article.tags && article.tags.companies && article.tags.companies.length > 0}}"
+      class="subtag-chip"
+      data-tag="{{article.tags.companies[0]}}"
+      data-type="company"
+      catchtap="onSubtagTap"
+    >{{article.tags.companies[0]}}</text>
+    <text
+      wx:elif="{{article.category === 'opinion' && article.tags && article.tags.people && article.tags.people.length > 0}}"
+      class="subtag-chip"
+      data-tag="{{article.tags.people[0]}}"
+      data-type="people"
+      catchtap="onSubtagTap"
+    >{{article.tags.people[0]}}</text>
   </view>
 </view>

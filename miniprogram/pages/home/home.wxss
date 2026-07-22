@@ -54,25 +54,57 @@
 }
 
 .tabs-inner {
-  display: inline-flex;
-  padding: 20rpx 24rpx;
-  gap: 12rpx;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 20rpx;
 }
 
 .tab-item {
   display: inline-block;
   font-size: 26rpx;
-  padding: 10rpx 24rpx;
+  padding: 10rpx 18rpx;
   border-radius: 32rpx;
   color: #718096;
   background: #f7fafc;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .tab-active {
   color: #ffffff;
   background: #1a1a2e;
   font-weight: 500;
+}
+
+/* 热门子标签横滑条 */
+.hot-tags-row {
+  background: #ffffff;
+  border-bottom: 1rpx solid #e2e8f0;
+  padding: 16rpx 0;
+}
+
+.hot-tags-scroll {
+  white-space: nowrap;
+}
+
+.hot-tags-inner {
+  display: inline-flex;
+  gap: 16rpx;
+  padding: 0 24rpx;
+}
+
+.hot-tag-chip {
+  display: inline-block;
+  font-size: 24rpx;
+  color: #4a6cf7;
+  background: #f7faff;
+  border: 1rpx solid #c7d7fe;
+  padding: 8rpx 20rpx;
+  border-radius: 28rpx;
+  flex-shrink: 0;
 }
 
 /* 文章列表 */

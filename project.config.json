@@ -1,5 +1,5 @@
 {
-  "description": "AI前沿资讯小程序",
+  "description": "ai-news-miniprogram",
   "packOptions": {
     "ignore": [],
     "include": []
@@ -43,5 +43,6 @@
   "editorSetting": {
     "tabIndent": "insertSpaces",
     "tabSize": 2
-  }
+  },
+  "miniprogramRoot": "miniprogram/"
 }

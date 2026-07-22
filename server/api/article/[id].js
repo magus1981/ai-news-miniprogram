@@ -3,6 +3,7 @@
  * 单篇文章详情（含AI总结）
  */
 const { getDB } = require('../../lib/db');
+const { parseTags, parseKeyPoints } = require('../../lib/tags');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -22,7 +23,7 @@ module.exports = async (req, res) => {
 
     const result = await db.execute({
       sql: `SELECT id, title, original_title, source_name, source_url, category, 
-                   summary, ai_score, is_featured, published_at, collected_at, date_key
+                   summary, ai_score, is_featured, published_at, collected_at, date_key, tags, key_points
             FROM articles WHERE id = ?`,
       args: [id],
     });
@@ -45,6 +46,8 @@ module.exports = async (req, res) => {
       published_at: row.published_at,
       collected_at: row.collected_at,
       date_key: row.date_key,
+      tags: parseTags(row.tags),
+      key_points: parseKeyPoints(row.key_points),
     });
 
   } catch (err) {

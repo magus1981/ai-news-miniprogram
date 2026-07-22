@@ -29,6 +29,11 @@
   color: #a0aec0;
 }
 
+.article-time {
+  font-size: 22rpx;
+  color: #cbd5e0;
+}
+
 .article-tag {
   font-size: 20rpx;
 }
@@ -39,4 +44,14 @@
   background: #fff5f5;
   padding: 2rpx 10rpx;
   border-radius: 4rpx;
+}
+
+/* 子标签chip：浅色描边，区别于分类标签 */
+.subtag-chip {
+  font-size: 20rpx;
+  color: #4a6cf7;
+  background: #f7faff;
+  border: 1rpx solid #c7d7fe;
+  padding: 2rpx 12rpx;
+  border-radius: 16rpx;
 }

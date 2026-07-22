@@ -18,7 +18,10 @@ function get(path, params = {}) {
     wx.request({
       url,
       method: 'GET',
-      header: { 'Content-Type': 'application/json' },
+      header: {
+        'Content-Type': 'application/json',
+        'bypass-tunnel-reminder': 'true',
+      },
       success(res) {
         if (res.statusCode === 200) {
           resolve(res.data);
@@ -41,10 +44,10 @@ function getFeatured(date) {
 }
 
 /**
- * 获取文章列表
+ * 获取文章列表（tag参数可与category/date叠加；date传'all'表示不限日期）
  */
-function getArticles({ category, date, page = 1, limit = 20 }) {
-  return get('/api/articles', { category, date, page, limit });
+function getArticles({ category, date, page = 1, limit = 20, tag }) {
+  return get('/api/articles', { category, date, page, limit, tag });
 }
 
 /**
@@ -54,8 +57,16 @@ function getArticleDetail(id) {
   return get(`/api/article/${id}`);
 }
 
+/**
+ * 获取标签聚合（companies/people/keywords 各Top 30）
+ */
+function getTags() {
+  return get('/api/tags');
+}
+
 module.exports = {
   getFeatured,
   getArticles,
   getArticleDetail,
+  getTags,
 };

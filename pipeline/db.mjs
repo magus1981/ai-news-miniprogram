@@ -74,8 +74,8 @@ export async function insertArticles(articles) {
   let skipped = 0;
 
   const insertSQL = `INSERT OR IGNORE INTO articles 
-    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, published_at, date_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, published_at, date_key, tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   for (const article of articles) {
     const args = [
@@ -89,6 +89,7 @@ export async function insertArticles(articles) {
       article.is_featured ? 1 : 0,
       article.published_at,
       article.date_key,
+      article.tags || '[]',
     ];
 
     try {

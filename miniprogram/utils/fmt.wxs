@@ -1,0 +1,50 @@
+// 分类中文标签 + 时间格式化（WXS，供 wxml 直接调用）
+var LABELS = {
+  company: '公司',
+  technology: '技术',
+  opensource: '开源',
+  funding: '融资',
+  opinion: '观点',
+  policy: '政策'
+};
+
+function categoryLabel(c) {
+  return LABELS[c] || c;
+}
+
+function pad(n) {
+  return n < 10 ? '0' + n : '' + n;
+}
+
+// ISO 时间 → 北京时间 'YYYY-MM-DD HH:mm'
+function formatTime(iso) {
+  if (!iso) return '';
+  var d = getDate(iso);
+  if (isNaN(d.getTime())) return iso;
+  var t = d.getTime() + 8 * 3600 * 1000; // UTC+8
+  var b = getDate(t);
+  return b.getUTCFullYear() + '-' + pad(b.getUTCMonth() + 1) + '-' + pad(b.getUTCDate())
+    + ' ' + pad(b.getUTCHours()) + ':' + pad(b.getUTCMinutes());
+}
+
+// ISO 时间 → 相对时间（'x分钟前/x小时前/x天前'，超过30天显示日期）
+function relativeTime(iso) {
+  if (!iso) return '';
+  var d = getDate(iso);
+  if (isNaN(d.getTime())) return iso;
+  var diff = getDate().getTime() - d.getTime();
+  var min = Math.floor(diff / 60000);
+  if (min < 1) return '刚刚';
+  if (min < 60) return min + '分钟前';
+  var hour = Math.floor(min / 60);
+  if (hour < 24) return hour + '小时前';
+  var day = Math.floor(hour / 24);
+  if (day < 30) return day + '天前';
+  return formatTime(iso).substring(0, 10);
+}
+
+module.exports = {
+  categoryLabel: categoryLabel,
+  formatTime: formatTime,
+  relativeTime: relativeTime
+};

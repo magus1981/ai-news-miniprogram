@@ -1,3 +1,4 @@
+<wxs src="../../utils/fmt.wxs" module="fmt" />
 <view class="detail-page">
   <!-- 加载中 -->
   <view wx:if="{{loading}}" class="loading">
@@ -17,11 +18,43 @@
       <view class="article-info">
         <text class="info-source">{{article.source_name}}</text>
         <text class="info-dot">·</text>
-        <text class="info-time">{{article.published_at}}</text>
-        <text class="info-tag tag tag-{{article.category}}">{{article.category}}</text>
+        <text class="info-time">{{fmt.formatTime(article.published_at)}}</text>
+        <text class="info-tag tag tag-{{article.category}}">{{fmt.categoryLabel(article.category)}}</text>
       </view>
       <view wx:if="{{article.original_title}}" class="original-title">
         原标题：{{article.original_title}}
+      </view>
+
+      <!-- 子标签组：公司+人物，全部可点击跳标签页 -->
+      <view
+        wx:if="{{article.tags && ((article.tags.companies && article.tags.companies.length > 0) || (article.tags.people && article.tags.people.length > 0))}}"
+        class="detail-subtags"
+      >
+        <text
+          wx:for="{{article.tags.companies}}"
+          wx:key="*this"
+          class="subtag-chip"
+          data-tag="{{item}}"
+          data-type="company"
+          catchtap="onTagTap"
+        >{{item}}</text>
+        <text
+          wx:for="{{article.tags.people}}"
+          wx:key="*this"
+          class="subtag-chip subtag-chip-people"
+          data-tag="{{item}}"
+          data-type="people"
+          catchtap="onTagTap"
+        >{{item}}</text>
+      </view>
+    </view>
+
+    <!-- 核心要点（历史文章有key_points数据时显示，放在摘要之前） -->
+    <view wx:if="{{article.key_points && article.key_points.length > 0}}" class="keypoints-section">
+      <view class="keypoints-label">核心要点</view>
+      <view wx:for="{{article.key_points}}" wx:key="*this" class="keypoint-item">
+        <text class="keypoint-dot">•</text>
+        <text class="keypoint-text">{{item}}</text>
       </view>
     </view>
 

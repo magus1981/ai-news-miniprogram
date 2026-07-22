@@ -8,7 +8,9 @@ const ENV = 'dev';
 
 const CONFIG = {
   dev: {
-    apiBase: 'http://localhost:3000',
+    // 真机测试：localtunnel 公网隧道（转发到本机 3000 端口）
+    // 仅模拟器测试可改回 http://localhost:3000；局域网可用时用 http://10.0.193.110:3000
+    apiBase: 'https://county-lotus-craig-dry.trycloudflare.com',
   },
   prod: {
     // 部署到Vercel后替换为实际地址

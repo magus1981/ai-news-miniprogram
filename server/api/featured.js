@@ -3,6 +3,7 @@
  * 返回指定日期的精选文章（今日必读）
  */
 const { getDB } = require('../lib/db');
+const { parseTags } = require('../lib/tags');
 
 module.exports = async (req, res) => {
   // CORS
@@ -18,7 +19,7 @@ module.exports = async (req, res) => {
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
     const result = await db.execute({
-      sql: `SELECT id, title, original_title, source_name, source_url, category, summary, ai_score, published_at
+      sql: `SELECT id, title, original_title, source_name, source_url, category, summary, ai_score, published_at, tags
             FROM articles 
             WHERE date_key = ? AND is_featured = 1
             ORDER BY ai_score DESC`,
@@ -35,6 +36,7 @@ module.exports = async (req, res) => {
       summary: row.summary,
       ai_score: row.ai_score,
       published_at: row.published_at,
+      tags: parseTags(row.tags),
     }));
 
     res.status(200).json({
