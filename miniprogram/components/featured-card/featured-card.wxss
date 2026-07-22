@@ -68,3 +68,10 @@
   padding: 2rpx 12rpx;
   border-radius: 16rpx;
 }
+
+/* 区域chip：绿色描边 */
+.subtag-chip-region {
+  color: #9ae6b4;
+  background: rgba(72, 187, 120, 0.12);
+  border-color: rgba(154, 230, 180, 0.5);
+}

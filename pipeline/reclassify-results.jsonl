@@ -1,0 +1,215 @@
+{"id":1,"category":"company","tags":{"companies":["OpenAI"],"people":[],"keywords":["ChatGPT","small business","automation"],"regions":[]},"confidence":"high"}
+{"id":2,"category":"technology","tags":{"companies":["OpenAI","Anthropic","Google"],"people":[],"keywords":["multimodal reasoning","text-to-image generation","model comparison"],"regions":[]},"confidence":"medium"}
+{"id":3,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["programming","AI impact","software development"],"regions":[]},"confidence":"high"}
+{"id":4,"category":"company","tags":{"companies":["Buzz"],"people":["Jack Dorsey"],"keywords":["team chat","AI agents","Git hosting"],"regions":[]},"confidence":"high"}
+{"id":5,"category":"company","tags":{"companies":["Anthropic","OpenAI"],"people":[],"keywords":["acquisition","rumor","2026"],"regions":[]},"confidence":"high"}
+{"id":6,"category":"company","tags":{"companies":["Meta"],"people":[],"keywords":["AI bedtime story app","imagination outsourcing"],"regions":[]},"confidence":"high"}
+{"id":7,"category":"technology","tags":{"companies":["OpenAI","Hugging Face"],"people":[],"keywords":["model leakage","internal testing","security incident"],"regions":[]},"confidence":"high"}
+{"id":8,"category":"company","tags":{"companies":["Block","Slack"],"people":["Jack Dorsey"],"keywords":["group chat","AI agents","workplace collaboration"],"regions":[]},"confidence":"high"}
+{"id":9,"category":"opinion","tags":{"companies":["Spotify","Netflix","YouTube"],"people":[],"keywords":["AI","entertainment platforms","content recommendation"],"regions":[]},"confidence":"high"}
+{"id":10,"category":"policy","tags":{"companies":[],"people":[],"keywords":["energy consumption","data centers","electricity demand"],"regions":[]},"confidence":"medium"}
+{"id":11,"category":"company","tags":{"companies":["Google"],"people":[],"keywords":["Gemini 3.6 Flash","Gemini 3.5 Flash-Lite","Flash Cyber"],"regions":[]},"confidence":"high"}
+{"id":12,"category":"policy","tags":{"companies":[],"people":["Scott Bessent"],"keywords":["IP theft","sanctions","export control"],"regions":["中国","美国"]},"confidence":"high"}
+{"id":13,"category":"policy","tags":{"companies":["Deezer"],"people":[],"keywords":["AI-generated music","copyright","content moderation"],"regions":[]},"confidence":"medium"}
+{"id":14,"category":"funding","tags":{"companies":["Gritt"],"people":[],"keywords":["robotics","solar plants","construction automation"],"regions":[]},"confidence":"high"}
+{"id":15,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI assistant","judicial efficiency","field experiment"],"regions":["Pakistan"]},"confidence":"medium"}
+{"id":16,"category":"opinion","tags":{"companies":["KPMG","Ramp"],"people":[],"keywords":["AI spending","cost transparency","budget management"],"regions":[]},"confidence":"high"}
+{"id":17,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["agentic AI","token economy","billing model"],"regions":[]},"confidence":"high"}
+{"id":18,"category":"policy","tags":{"companies":["Meta"],"people":[],"keywords":["AI security","data privacy","breach disclosure"],"regions":["美国"]},"confidence":"high"}
+{"id":19,"category":"policy","tags":{"companies":["Microsoft"],"people":[],"keywords":["cloud infrastructure","AI-powered target selection","human rights checks"],"regions":["Israel","Gaza"]},"confidence":"high"}
+{"id":20,"category":"funding","tags":{"companies":["Moonshot AI"],"people":[],"keywords":["valuation","funding round","Kimi"],"regions":["中国"]},"confidence":"high"}
+{"id":21,"category":"company","tags":{"companies":["Deepseek","Ramp"],"people":["Ara Kharazian"],"keywords":["cost-effective AI","US enterprise adoption","security risk"],"regions":["美国","中国"]},"confidence":"high"}
+{"id":22,"category":"company","tags":{"companies":["OpenAI"],"people":[],"keywords":["ChatGPT","AI agent","superapp"],"regions":[]},"confidence":"high"}
+{"id":23,"category":"technology","tags":{"companies":["Perplexity","OpenAI","Anthropic"],"people":[],"keywords":["Search as Code","AI agent autonomy","token cost optimization"],"regions":[]},"confidence":"high"}
+{"id":24,"category":"technology","tags":{"companies":["OpenAI"],"people":[],"keywords":["prompt injection","security","Lockdown Mode"],"regions":[]},"confidence":"high"}
+{"id":25,"category":"company","tags":{"companies":["Anthropic","OpenAI","Tesla"],"people":["Clive Chan"],"keywords":["AI chip","talent acquisition","IPO"],"regions":[]},"confidence":"high"}
+{"id":26,"category":"company","tags":{"companies":["Apple"],"people":[],"keywords":["Siri","Apple Intelligence","iOS 27"],"regions":[]},"confidence":"high"}
+{"id":27,"category":"funding","tags":{"companies":[],"people":[],"keywords":["AI上市","代币价格","资本市场"],"regions":[]},"confidence":"medium"}
+{"id":28,"category":"company","tags":{"companies":["Notion","Anthropic"],"people":[],"keywords":["service disruption","API integration","product stability"],"regions":[]},"confidence":"high"}
+{"id":29,"category":"company","tags":{"companies":["OpenAI"],"people":[],"keywords":["super app","chat interface","product strategy"],"regions":[]},"confidence":"high"}
+{"id":30,"category":"technology","tags":{"companies":["OpenAI"],"people":[],"keywords":["prompt injection","security","Lockdown Mode"],"regions":[]},"confidence":"high"}
+{"id":31,"category":"policy","tags":{"companies":[],"people":["Sriram Krishnan"],"keywords":["AI policy","White House","Trump AI policy"],"regions":["美国"]},"confidence":"high"}
+{"id":32,"category":"policy","tags":{"companies":["OpenAI"],"people":["Donald Trump"],"keywords":["government equity stake","AI regulation","public benefit"],"regions":["美国"]},"confidence":"high"}
+{"id":33,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":34,"category":"company","tags":{"companies":["Google","SpaceX"],"people":[],"keywords":["AI compute","cloud infrastructure","strategic partnership"],"regions":[]},"confidence":"high"}
+{"id":35,"category":"opinion","tags":{"companies":["Mirror","Board","Cyberdeck"],"people":["Brynn Putnam"],"keywords":["digital detox","offline interaction","anti-phone trend"],"regions":[]},"confidence":"high"}
+{"id":36,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["家庭AI应用","性别角色","AI商业化"],"regions":[]},"confidence":"high"}
+{"id":37,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":38,"category":"policy","tags":{"companies":["NVIDIA"],"people":["Jensen Huang","Keir Starmer"],"keywords":["sovereign AI","AI infrastructure","UK AI strategy"],"regions":["英国"]},"confidence":"high"}
+{"id":39,"category":"company","tags":{"companies":["NVIDIA","LG Group"],"people":[],"keywords":["AI factory","physical AI","autonomous driving"],"regions":[]},"confidence":"high"}
+{"id":40,"category":"company","tags":{"companies":["NVIDIA","Doosan Group"],"people":[],"keywords":["physical AI","robotics","AI factory"],"regions":[]},"confidence":"high"}
+{"id":41,"category":"company","tags":{"companies":["SK Telecom","NVIDIA"],"people":[],"keywords":["AI cloud","AI factory","DSX platform"],"regions":["韩国"]},"confidence":"high"}
+{"id":42,"category":"company","tags":{"companies":["NVIDIA","SK hynix"],"people":[],"keywords":["AI factory","memory technology","semiconductor"],"regions":[]},"confidence":"high"}
+{"id":43,"category":"company","tags":{"companies":["NAVER","NVIDIA"],"people":[],"keywords":["AI infrastructure","NVIDIA DSX","sovereign AI"],"regions":[]},"confidence":"high"}
+{"id":44,"category":"technology","tags":{"companies":["NVIDIA"],"people":["Jensen Huang"],"keywords":["RTX Spark","personal AI agents","Windows PCs"],"regions":["韩国","美国"]},"confidence":"high"}
+{"id":45,"category":"company","tags":{"companies":["Ant Group"],"people":[],"keywords":["AI payment","global intelligent agent","cross-border payment"],"regions":[]},"confidence":"high"}
+{"id":46,"category":"technology","tags":{"companies":["AutoNavi"],"people":[],"keywords":["3D native","scene generation","2D distillation"],"regions":[]},"confidence":"high"}
+{"id":47,"category":"opinion","tags":{"companies":["OpenAI","字节跳动"],"people":[],"keywords":["高考数学","大语言模型推理能力","AI教育应用"],"regions":[]},"confidence":"medium"}
+{"id":48,"category":"policy","tags":{"companies":[],"people":[],"keywords":["创业大赛","深圳","人工智能政策"],"regions":["中国"]},"confidence":"medium"}
+{"id":49,"category":"company","tags":{"companies":["原力灵机"],"people":[],"keywords":["大模型","Coding","具身智能"],"regions":[]},"confidence":"high"}
+{"id":50,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":51,"category":"technology","tags":{"companies":[],"people":[],"keywords":["模拟计算","计算机架构","矩阵计算"],"regions":["中国"]},"confidence":"high"}
+{"id":52,"category":"company","tags":{"companies":["Qualcomm","GAC Aion","WeRide"],"people":[],"keywords":["intelligent driving","autonomous driving","Qualcomm Summit"],"regions":["China"]},"confidence":"high"}
+{"id":53,"category":"company","tags":{"companies":["Tencent"],"people":["Tang Daosheng","Yao Shunyu","Liu Chiping"],"keywords":["AI strategy","B2B AI","Coding Agent"],"regions":[]},"confidence":"high"}
+{"id":54,"category":"company","tags":{"companies":["AWS","Azure","Google Cloud"],"people":[],"keywords":["AI企业支付","全球化采购","跨境结算"],"regions":["中国"]},"confidence":"high"}
+{"id":55,"category":"company","tags":{"companies":["Xiaomi","Ge Wu Tech"],"people":["Fan Dian"],"keywords":["AI hardware","sleep tech","Kickstarter"],"regions":[]},"confidence":"high"}
+{"id":56,"category":"funding","tags":{"companies":["华超神控","经纬创投","德联资本"],"people":["李昕","Sam Altman"],"keywords":["脑机接口","超声神经调控","天使轮融资"],"regions":["中国"]},"confidence":"high"}
+{"id":57,"category":"opinion","tags":{"companies":["Anthropic","字节跳动"],"people":["李邦竹"],"keywords":["AI商业化","AI伦理","自我改进风险"],"regions":[]},"confidence":"high"}
+{"id":58,"category":"funding","tags":{"companies":["明阳电路"],"people":[],"keywords":["可转债","AI算力","HDI板"],"regions":[]},"confidence":"high"}
+{"id":59,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI硬件需求","PC组装商转型","产业链重构"],"regions":[]},"confidence":"high"}
+{"id":60,"category":"policy","tags":{"companies":[],"people":[],"keywords":["AI责任归属","智能体法律监管","司法判例"],"regions":["中国"]},"confidence":"high"}
+{"id":61,"category":"company","tags":{"companies":["Apple","Google"],"people":["Tim Cook"],"keywords":["AI strategy","Gemini integration","competitive positioning"],"regions":[]},"confidence":"high"}
+{"id":62,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["降维打击","行业渗透","商业生态变革"],"regions":[]},"confidence":"high"}
+{"id":63,"category":"company","tags":{"companies":["Zhipu AI","DeepSeek"],"people":[],"keywords":["pricing strategy","commercialization","LLM competition"],"regions":[]},"confidence":"high"}
+{"id":64,"category":"company","tags":{"companies":["NIO","XPeng","Li Auto"],"people":["Wang Chuanfu"],"keywords":["autonomous driving chip","in-house chip development","automotive AI"],"regions":[]},"confidence":"high"}
+{"id":65,"category":"opinion","tags":{"companies":["AI应用公司"],"people":["王戴明"],"keywords":["一人公司","AI内容抄袭","AI工具与人类创造力"],"regions":[]},"confidence":"high"}
+{"id":66,"category":"company","tags":{"companies":["长江存储","长飞光纤","华工科技"],"people":[],"keywords":["AI硬件","光电子信息产业","武汉光谷"],"regions":["中国"]},"confidence":"high"}
+{"id":67,"category":"company","tags":{"companies":["Amazon"],"people":[],"keywords":["AI-powered customization","e-commerce personalization","Alexa"],"regions":[]},"confidence":"high"}
+{"id":68,"category":"company","tags":{"companies":["字节跳动"],"people":[],"keywords":["豆包","多模型融合","AI平台集成"],"regions":[]},"confidence":"high"}
+{"id":69,"category":"opinion","tags":{"companies":["Google"],"people":["Sundar Pichai"],"keywords":["AI原住民","AI代理","世代影响"],"regions":[]},"confidence":"high"}
+{"id":70,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI驱动文字游戏","粉丝文化","偶像产业"],"regions":[]},"confidence":"high"}
+{"id":71,"category":"policy","tags":{"companies":["Google"],"people":[],"keywords":["AI liability","AI-generated content","search engine regulation"],"regions":["德国","欧盟"]},"confidence":"high"}
+{"id":72,"category":"funding","tags":{"companies":["Prometheus"],"people":["Jeff Bezos"],"keywords":["funding round","valuation","seed funding"],"regions":[]},"confidence":"high"}
+{"id":73,"category":"company","tags":{"companies":["Deezer"],"people":[],"keywords":["AI music detection","playlist analysis","content transparency"],"regions":[]},"confidence":"high"}
+{"id":74,"category":"company","tags":{"companies":["OpenAI","Anthropic"],"people":[],"keywords":["API pricing","token pricing","price war"],"regions":[]},"confidence":"high"}
+{"id":75,"category":"policy","tags":{"companies":["Anthropic"],"people":["Dario Amodei"],"keywords":["AI governance","frontier model audits","strategic competition"],"regions":[]},"confidence":"high"}
+{"id":76,"category":"opinion","tags":{"companies":["Anthropic"],"people":[],"keywords":["AI ethics","research transparency","corporate responsibility"],"regions":[]},"confidence":"high"}
+{"id":77,"category":"technology","tags":{"companies":["Google"],"people":[],"keywords":["diffusion models","text generation","autoregressive models"],"regions":[]},"confidence":"high"}
+{"id":78,"category":"funding","tags":{"companies":["OpenAI","Anthropic"],"people":["Sam Altman"],"keywords":["IPO","public offering","上市"],"regions":[]},"confidence":"high"}
+{"id":79,"category":"technology","tags":{"companies":["Anthropic"],"people":[],"keywords":["AI security","exploit generation","patch-to-exploit"],"regions":[]},"confidence":"high"}
+{"id":80,"category":"company","tags":{"companies":["OpenAI","Nvidia"],"people":[],"keywords":["data center","infrastructure","computing capacity"],"regions":["美国"]},"confidence":"high"}
+{"id":81,"category":"company","tags":{"companies":["Avataar AI"],"people":[],"keywords":["video generation","India localization","cost optimization"],"regions":["印度"]},"confidence":"high"}
+{"id":82,"category":"funding","tags":{"companies":["Theker","Boston Dynamics"],"people":[],"keywords":["factory robot","flexible manufacturing","robotics funding"],"regions":[]},"confidence":"high"}
+{"id":83,"category":"funding","tags":{"companies":["Prometheus"],"people":["Jeff Bezos"],"keywords":["AGI","physical AI","drug design"],"regions":[]},"confidence":"high"}
+{"id":84,"category":"funding","tags":{"companies":["SpaceX"],"people":[],"keywords":["IPO","space industry","private spaceflight"],"regions":[]},"confidence":"high"}
+{"id":85,"category":"policy","tags":{"companies":["SpaceX"],"people":[],"keywords":["SPV","investor protection","regulatory oversight"],"regions":[]},"confidence":"medium"}
+{"id":86,"category":"technology","tags":{"companies":["Deezer","Spotify","Apple"],"people":[],"keywords":["AI music detection","content identification","music copyright"],"regions":[]},"confidence":"high"}
+{"id":87,"category":"company","tags":{"companies":["Pool"],"people":[],"keywords":["screenshot management","personalized collections","AI-powered organization"],"regions":[]},"confidence":"high"}
+{"id":88,"category":"company","tags":{"companies":["DoorDash"],"people":[],"keywords":["AI chatbot","food delivery","natural language interface"],"regions":[]},"confidence":"high"}
+{"id":89,"category":"opinion","tags":{"companies":["Opendoor"],"people":[],"keywords":["AI outsourcing","GCC","global AI deployment"],"regions":["India"]},"confidence":"high"}
+{"id":90,"category":"company","tags":{"companies":["Anthropic"],"people":["Dario Amodei"],"keywords":["management structure","leadership","AI company governance"],"regions":[]},"confidence":"high"}
+{"id":91,"category":"policy","tags":{"companies":["xAI","SpaceX"],"people":[],"keywords":["AI safety","whistleblower","corporate governance"],"regions":[]},"confidence":"high"}
+{"id":92,"category":"funding","tags":{"companies":["Amazon"],"people":[],"keywords":["AI investment","debt financing","capital expenditure"],"regions":[]},"confidence":"high"}
+{"id":93,"category":"company","tags":{"companies":[],"people":[],"keywords":["AI spending","enterprise adoption","Ramp AI Index"],"regions":[]},"confidence":"high"}
+{"id":94,"category":"technology","tags":{"companies":[],"people":[],"keywords":["AI memory systems","model performance degradation","sycophantic tendencies"],"regions":[]},"confidence":"high"}
+{"id":95,"category":"opinion","tags":{"companies":["Anthropic"],"people":[],"keywords":["AI safety","cybersecurity","guardrails"],"regions":[]},"confidence":"high"}
+{"id":96,"category":"company","tags":{"companies":["Apple"],"people":["Jon McCormack"],"keywords":["iOS 27","Photos app","generative AI"],"regions":[]},"confidence":"high"}
+{"id":97,"category":"funding","tags":{"companies":["SpaceX"],"people":[],"keywords":["IPO","private equity","investor access"],"regions":[]},"confidence":"high"}
+{"id":98,"category":"company","tags":{"companies":["OpenAI"],"people":["Thibault Sottiaux"],"keywords":["ChatGPT","product overhaul","engineering leadership"],"regions":[]},"confidence":"high"}
+{"id":99,"category":"policy","tags":{"companies":["X"],"people":["Elon Musk"],"keywords":["deepfake","content moderation","AI regulation"],"regions":["美国"]},"confidence":"high"}
+{"id":100,"category":"policy","tags":{"companies":["Anthropic"],"people":[],"keywords":["AI policy","model development restrictions","researcher advocacy"],"regions":[]},"confidence":"high"}
+{"id":101,"category":"policy","tags":{"companies":[],"people":[],"keywords":["面部识别","执法监管","AI误用"],"regions":["美国"]},"confidence":"high"}
+{"id":102,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":103,"category":"company","tags":{"companies":["Google"],"people":[],"keywords":["Google Gemini","World Cup","sports AI"],"regions":[]},"confidence":"high"}
+{"id":104,"category":"company","tags":{"companies":["Anthropic"],"people":[],"keywords":["Claude Mythos 5","Claude Fable 5","cybersecurity"],"regions":[]},"confidence":"high"}
+{"id":105,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":106,"category":"technology","tags":{"companies":["Google DeepMind"],"people":["Rohin Shah"],"keywords":["AI agents","AGI safety","alignment"],"regions":[]},"confidence":"high"}
+{"id":107,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI agents","hybrid workforce","enterprise automation"],"regions":[]},"confidence":"high"}
+{"id":108,"category":"opinion","tags":{"companies":["MIT Technology Review"],"people":[],"keywords":["AI trends","AI10 list","SXSW London"],"regions":[]},"confidence":"high"}
+{"id":109,"category":"technology","tags":{"companies":["OpenAI"],"people":["Chi-kwan Chan"],"keywords":["Codex","black hole simulation","scientific computing"],"regions":[]},"confidence":"high"}
+{"id":110,"category":"company","tags":{"companies":["BBVA","OpenAI"],"people":[],"keywords":["ChatGPT Enterprise","banking transformation","enterprise AI deployment"],"regions":["西班牙"]},"confidence":"high"}
+{"id":111,"category":"policy","tags":{"companies":["OpenAI"],"people":[],"keywords":["AI content transparency","EU Code of Practice","AI governance"],"regions":["欧盟"]},"confidence":"high"}
+{"id":112,"category":"company","tags":{"companies":["OpenAI","Ona"],"people":[],"keywords":["acquisition","Codex","AI agents"],"regions":[]},"confidence":"high"}
+{"id":113,"category":"company","tags":{"companies":["OpenAI","Oracle"],"people":[],"keywords":["enterprise AI","cloud partnership","API access"],"regions":[]},"confidence":"high"}
+{"id":114,"category":"policy","tags":{"companies":["OpenAI"],"people":[],"keywords":["influence operations","AI regulation","information security"],"regions":["中国","美国"]},"confidence":"high"}
+{"id":115,"category":"company","tags":{"companies":["LSEG","OpenAI"],"people":[],"keywords":["trusted AI","financial industry","AI deployment"],"regions":[]},"confidence":"high"}
+{"id":116,"category":"technology","tags":{"companies":["OpenAI","Nextdoor"],"people":[],"keywords":["Codex","GPT-5.5","software engineering"],"regions":[]},"confidence":"high"}
+{"id":117,"category":"company","tags":{"companies":["Notion","OpenAI"],"people":[],"keywords":["Codex","productivity tools","engineering efficiency"],"regions":[]},"confidence":"high"}
+{"id":118,"category":"company","tags":{"companies":["NVIDIA"],"people":[],"keywords":["shareholder meeting","virtual meeting","corporate governance"],"regions":[]},"confidence":"high"}
+{"id":119,"category":"company","tags":{"companies":["NVIDIA"],"people":[],"keywords":["GeForce NOW","cloud gaming","subscription discount"],"regions":[]},"confidence":"high"}
+{"id":120,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["robotaxi","autonomous driving","safety"],"regions":[]},"confidence":"high"}
+{"id":121,"category":"opensource","tags":{"companies":["Google DeepMind","NVIDIA"],"people":[],"keywords":["DiffusionGemma","open model","parallel generation"],"regions":[]},"confidence":"high"}
+{"id":122,"category":"technology","tags":{"companies":["NVIDIA","Apple","Google"],"people":[],"keywords":["confidential computing","server-side inference","private cloud compute"],"regions":[]},"confidence":"high"}
+{"id":123,"category":"technology","tags":{"companies":["OpenAI"],"people":[],"keywords":["智能体测试","GPT 5.5","AI架构差距"],"regions":[]},"confidence":"high"}
+{"id":124,"category":"technology","tags":{"companies":[],"people":[],"keywords":["BEV","具身智能","机器人感知"],"regions":[]},"confidence":"high"}
+{"id":125,"category":"noise","tags":{"companies":[],"people":[],"keywords":[],"regions":[]},"confidence":"high"}
+{"id":126,"category":"company","tags":{"companies":["Anthropic"],"people":[],"keywords":["cost optimization","model pricing","Claude Fable 5"],"regions":[]},"confidence":"high"}
+{"id":127,"category":"company","tags":{"companies":["Alibaba","Alibaba Cloud"],"people":[],"keywords":["volunteer filling","education AI","agent"],"regions":[]},"confidence":"high"}
+{"id":128,"category":"company","tags":{"companies":["月之暗面","Kimi","中国工商银行"],"people":[],"keywords":["AI原生信用卡","算力额度","Agent权益"],"regions":["中国"]},"confidence":"high"}
+{"id":129,"category":"company","tags":{"companies":["Tencent"],"people":[],"keywords":["WeChat AI","AI strategy","ecosystem integration"],"regions":[]},"confidence":"high"}
+{"id":130,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["企业AI应用","数字化转型","组织治理"],"regions":[]},"confidence":"high"}
+{"id":131,"category":"company","tags":{"companies":["NVIDIA","Microsoft","Intel"],"people":["Jensen Huang"],"keywords":["AI PC","RTX Spark","GTC Taipei"],"regions":["台湾"]},"confidence":"high"}
+{"id":132,"category":"funding","tags":{"companies":["SpaceX"],"people":[],"keywords":["IPO","valuation","commercial space"],"regions":[]},"confidence":"high"}
+{"id":133,"category":"funding","tags":{"companies":["SpaceX"],"people":["Elon Musk"],"keywords":["IPO","space industry","valuation"],"regions":["美国"]},"confidence":"high"}
+{"id":134,"category":"company","tags":{"companies":["FlickReels","海鱼星空","TCL雷鸟科技"],"people":["咪蒙"],"keywords":["AI短剧","内容出海","AIGC"],"regions":[]},"confidence":"high"}
+{"id":135,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI就业影响","专业选择","复合能力"],"regions":[]},"confidence":"high"}
+{"id":136,"category":"funding","tags":{"companies":[],"people":[],"keywords":["电子级玻璃纤维布","AI硬件供应链","原材料涨价"],"regions":[]},"confidence":"high"}
+{"id":137,"category":"company","tags":{"companies":["Google"],"people":[],"keywords":["社区投资","能源可及性","劳动力建设"],"regions":["美国"]},"confidence":"medium"}
+{"id":138,"category":"funding","tags":{"companies":[],"people":[],"keywords":["耐心资本","创投模式","2026SuperLink"],"regions":[]},"confidence":"medium"}
+{"id":139,"category":"company","tags":{"companies":["Anthropic"],"people":[],"keywords":["Anthropic","AI股神","私人关系"],"regions":[]},"confidence":"medium"}
+{"id":140,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI产品化","落地闭环","可交付"],"regions":[]},"confidence":"medium"}
+{"id":141,"category":"policy","tags":{"companies":["OpenAI","Anthropic"],"people":[],"keywords":["export control","model release ban","AI regulation"],"regions":["美国"]},"confidence":"high"}
+{"id":142,"category":"company","tags":{"companies":["Microsoft","OpenAI","Anthropic"],"people":["Mustafa Suleyman"],"keywords":["Copilot","MAI models","cost optimization"],"regions":[]},"confidence":"high"}
+{"id":143,"category":"opensource","tags":{"companies":["Cohere"],"people":[],"keywords":["Arabic speech recognition","open-source model","Hugging Face"],"regions":[]},"confidence":"high"}
+{"id":144,"category":"company","tags":{"companies":["Anthropic"],"people":[],"keywords":["Claude Cowork","AI agent","multi-platform"],"regions":[]},"confidence":"high"}
+{"id":145,"category":"policy","tags":{"companies":["Alibaba","Bytedance","Z.ai"],"people":[],"keywords":["export controls","AI regulation","strategic technology"],"regions":["中国","欧洲","美国"]},"confidence":"high"}
+{"id":146,"category":"technology","tags":{"companies":["Anthropic"],"people":[],"keywords":["J-Space","J-Lens","AI safety"],"regions":[]},"confidence":"high"}
+{"id":147,"category":"company","tags":{"companies":["OpenAI","Anthropic"],"people":[],"keywords":["cost advantage","OpenRouter","market share"],"regions":["中国","美国"]},"confidence":"high"}
+{"id":148,"category":"company","tags":{"companies":["Deepseek"],"people":[],"keywords":["AI chip","hardware development","China AI"],"regions":["中国"]},"confidence":"high"}
+{"id":149,"category":"company","tags":{"companies":["OpenAI","Anthropic"],"people":[],"keywords":["compute credits","startup ecosystem","IPO preparation"],"regions":[]},"confidence":"high"}
+{"id":150,"category":"opinion","tags":{"companies":["Apollo"],"people":["Torsten Slok"],"keywords":["AI profitability","regulated industries","productivity delay"],"regions":[]},"confidence":"high"}
+{"id":151,"category":"opensource","tags":{"companies":["ZML"],"people":["Yann LeCun"],"keywords":["ZML/LLMD","inference optimization","open-source software"],"regions":["法国"]},"confidence":"high"}
+{"id":152,"category":"funding","tags":{"companies":["SambaNova","Intel"],"people":[],"keywords":["AI chip","valuation","venture funding"],"regions":[]},"confidence":"high"}
+{"id":153,"category":"company","tags":{"companies":["Meta"],"people":[],"keywords":["AI image generation","privacy concerns","ethical AI"],"regions":[]},"confidence":"high"}
+{"id":154,"category":"opensource","tags":{"companies":["Anthropic"],"people":[],"keywords":["open source AI","frontier labs","AI ecosystem"],"regions":[]},"confidence":"high"}
+{"id":155,"category":"company","tags":{"companies":["Microsoft"],"people":[],"keywords":["cost-cutting","in-house models","AI strategy"],"regions":[]},"confidence":"high"}
+{"id":156,"category":"opinion","tags":{"companies":["Discord"],"people":[],"keywords":["AI moderation","image recognition","algorithmic bias"],"regions":[]},"confidence":"high"}
+{"id":157,"category":"company","tags":{"companies":["Anthropic"],"people":[],"keywords":["Claude Cowork","cross-platform","mobile integration"],"regions":[]},"confidence":"high"}
+{"id":158,"category":"funding","tags":{"companies":["Savi"],"people":[],"keywords":["AI security","deepfake prevention","seed funding"],"regions":[]},"confidence":"high"}
+{"id":159,"category":"policy","tags":{"companies":["Forterra"],"people":[],"keywords":["autonomous weapons","AI ethics","military AI"],"regions":["United States","Ukraine"]},"confidence":"high"}
+{"id":160,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI security","ransomware","AI ethics"],"regions":[]},"confidence":"high"}
+{"id":161,"category":"funding","tags":{"companies":["SK Hynix"],"people":[],"keywords":["IPO","memory chips","AI hardware"],"regions":["United States"]},"confidence":"high"}
+{"id":162,"category":"opinion","tags":{"companies":["Vercel"],"people":["Guillermo Rauch"],"keywords":["AI agents","model-agent separation","price/performance tradeoff"],"regions":[]},"confidence":"high"}
+{"id":163,"category":"company","tags":{"companies":["Apple"],"people":[],"keywords":["Siri","iOS 27","generative AI"],"regions":[]},"confidence":"high"}
+{"id":164,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI layoffs","labor market impact","technology disruption"],"regions":[]},"confidence":"high"}
+{"id":165,"category":"policy","tags":{"companies":["Google"],"people":[],"keywords":["privacy settings","data collection","AI training"],"regions":["美国"]},"confidence":"high"}
+{"id":166,"category":"policy","tags":{"companies":["Meta"],"people":[],"keywords":["privacy","opt-out","AI ethics"],"regions":["美国"]},"confidence":"high"}
+{"id":167,"category":"company","tags":{"companies":["OpenAI"],"people":["Joshua Achiam","Sam Altman","Elon Musk"],"keywords":["AI safety","executive departure","legal testimony"],"regions":[]},"confidence":"high"}
+{"id":168,"category":"technology","tags":{"companies":["Anthropic"],"people":[],"keywords":["AI agent","mobile integration","smartphone-controlled agent"],"regions":[]},"confidence":"high"}
+{"id":169,"category":"company","tags":{"companies":["Solos"],"people":[],"keywords":["smart glasses","privacy shield","hardware privacy"],"regions":[]},"confidence":"high"}
+{"id":170,"category":"opinion","tags":{"companies":[],"people":["Erling Haaland"],"keywords":["AI-generated content","digital identity","AI ethics"],"regions":[]},"confidence":"high"}
+{"id":171,"category":"technology","tags":{"companies":[],"people":[],"keywords":["AI for biomedicine","protein behavior prediction","space-based AI training"],"regions":[]},"confidence":"medium"}
+{"id":172,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI architecture","agentic systems","IT strategy"],"regions":[]},"confidence":"high"}
+{"id":173,"category":"opinion","tags":{"companies":["OpenAI"],"people":["Sam Altman"],"keywords":["wealth distribution","AI ethics","AI policy"],"regions":[]},"confidence":"high"}
+{"id":174,"category":"company","tags":{"companies":["OpenAI"],"people":[],"keywords":["ChatGPT Enterprise","Codex","payments"],"regions":["澳大利亚"]},"confidence":"high"}
+{"id":175,"category":"company","tags":{"companies":["MUFG","OpenAI"],"people":[],"keywords":["AI-native","ChatGPT Enterprise","financial services"],"regions":["日本"]},"confidence":"high"}
+{"id":176,"category":"technology","tags":{"companies":["NVIDIA"],"people":[],"keywords":["CPU architecture","agentic AI","single-threaded performance"],"regions":[]},"confidence":"high"}
+{"id":177,"category":"opensource","tags":{"companies":["NVIDIA","Hugging Face"],"people":[],"keywords":["LeRobot","robotics","open source"],"regions":[]},"confidence":"high"}
+{"id":178,"category":"opensource","tags":{"companies":["NVIDIA"],"people":[],"keywords":["open models","open AI infrastructure","ICML"],"regions":[]},"confidence":"high"}
+{"id":179,"category":"policy","tags":{"companies":[],"people":[],"keywords":["AI战略","国家AI政策","AI生态系统"],"regions":[]},"confidence":"high"}
+{"id":180,"category":"technology","tags":{"companies":["Beijing Academy of Artificial Intelligence"],"people":[],"keywords":["world modeling","dynamic understanding","cognitive AI"],"regions":[]},"confidence":"high"}
+{"id":181,"category":"technology","tags":{"companies":["DeepSeek"],"people":["翁荔新","崔添翼"],"keywords":["自进化","Harness","AI系统自主优化"],"regions":[]},"confidence":"high"}
+{"id":182,"category":"technology","tags":{"companies":["Alibaba"],"people":[],"keywords":["Agent evaluation","benchmarking","AI agents"],"regions":[]},"confidence":"high"}
+{"id":183,"category":"company","tags":{"companies":["Amap"],"people":[],"keywords":["Phys AI Data","空间数据基座","物理AI"],"regions":[]},"confidence":"high"}
+{"id":184,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["WAIC","人工智能大会","AI与人类协作"],"regions":["中国"]},"confidence":"medium"}
+{"id":185,"category":"company","tags":{"companies":["DeepSeek"],"people":[],"keywords":["推理芯片","自研硬件","AI芯片"],"regions":[]},"confidence":"high"}
+{"id":186,"category":"opensource","tags":{"companies":[],"people":[],"keywords":["VLA","视觉语言模型","机器人"],"regions":["中国"]},"confidence":"high"}
+{"id":187,"category":"opensource","tags":{"companies":["Ant Group"],"people":[],"keywords":["robotics","vision-language-model","open-source"],"regions":["China"]},"confidence":"high"}
+{"id":188,"category":"company","tags":{"companies":["理想汽车"],"people":[],"keywords":["具身智能","机器人","百台交付"],"regions":[]},"confidence":"high"}
+{"id":189,"category":"company","tags":{"companies":["DeepSeek","Huawei"],"people":["华为天才少年"],"keywords":["招聘流程","企业形象","人才管理"],"regions":[]},"confidence":"high"}
+{"id":190,"category":"company","tags":{"companies":["易居","深度智联","克而瑞"],"people":["周忻"],"keywords":["地产AI","企业专属大模型","AI一体机"],"regions":["中国"]},"confidence":"high"}
+{"id":191,"category":"company","tags":{"companies":["SpaceX AI","Xiaomi","Tencent"],"people":["Lei Jun"],"keywords":["Grok4.5","SkyNomad","visual-language model"],"regions":[]},"confidence":"high"}
+{"id":192,"category":"technology","tags":{"companies":["ByteDance"],"people":[],"keywords":["AI video generation","multimodal input","scene understanding"],"regions":[]},"confidence":"high"}
+{"id":193,"category":"company","tags":{"companies":["海清智元"],"people":[],"keywords":["物理AI","估值泡沫","股价下跌"],"regions":[]},"confidence":"high"}
+{"id":194,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["AI就业影响","劳动力替代","教育转型"],"regions":[]},"confidence":"high"}
+{"id":195,"category":"opinion","tags":{"companies":[],"people":[],"keywords":["世界模型","概念包装","AI术语泛化"],"regions":[]},"confidence":"high"}
+{"id":196,"category":"company","tags":{"companies":["瑞为技术"],"people":[],"keywords":["视觉具身智能","民航AI","IPO"],"regions":[]},"confidence":"high"}
+{"id":197,"category":"company","tags":{"companies":["Kuaishou"],"people":[],"keywords":["AI战略","可灵AI","短视频转型"],"regions":[]},"confidence":"high"}
+{"id":198,"category":"company","tags":{"companies":["Meituan"],"people":[],"keywords":["large language models","intelligent delivery","service optimization"],"regions":[]},"confidence":"high"}
+{"id":199,"category":"opinion","tags":{"companies":["Goldman Sachs","Morgan Stanley"],"people":[],"keywords":["AI investment strategy","semiconductor commoditization","cloud infrastructure"],"regions":[]},"confidence":"high"}
+{"id":200,"category":"company","tags":{"companies":["珞博智能"],"people":["孙兆治"],"keywords":["AI情感陪伴","Token成本","AI原生硬件"],"regions":[]},"confidence":"high"}
+{"id":202,"category":"technology","tags":{"companies":["OpenAI","Hugging Face","Meta"],"people":[],"keywords":["red-teaming","supply chain poisoning","zero-trust build pipeline"],"regions":["欧盟"]},"confidence":"high"}
+{"id":203,"category":"technology","tags":{"companies":["OpenAI"],"people":[],"keywords":["safety","alignment","long-horizon models"],"regions":[]},"confidence":"high"}
+{"id":204,"category":"company","tags":{"companies":["Microsoft","Mistral AI","European Commission"],"people":["Arthur Mensch"],"keywords":["AI infrastructure","Azure","GDPR"],"regions":["欧盟"]},"confidence":"high"}
+{"id":206,"category":"technology","tags":{"companies":["Google"],"people":[],"keywords":["Architecture-as-Silicon","Gemini hardware co-design","TPU Frozen v2"],"regions":[]},"confidence":"high"}
+{"id":207,"category":"technology","tags":{"companies":["Baidu"],"people":[],"keywords":["AgentBench","task agent","dynamic reasoning architecture"],"regions":[]},"confidence":"high"}
+{"id":208,"category":"technology","tags":{"companies":["Baidu"],"people":[],"keywords":["AgentBench","agentic AI","task agent"],"regions":[]},"confidence":"high"}
+{"id":209,"category":"opensource","tags":{"companies":["Shanghai AI Laboratory","SenseTime","The Chinese University of Hong Kong"],"people":[],"keywords":["video understanding","multimodal LLM","open-weight model"],"regions":[]},"confidence":"high"}
+{"id":210,"category":"technology","tags":{"companies":["SenseTime"],"people":[],"keywords":["多模态基座模型","跨模态动态路由机制","权重级融合"],"regions":[]},"confidence":"high"}
+{"id":211,"category":"technology","tags":{"companies":["昆仑万维"],"people":[],"keywords":["世界模型","具身智能","物理推理"],"regions":[]},"confidence":"high"}
+{"id":212,"category":"technology","tags":{"companies":["Xiaohongshu"],"people":[],"keywords":["vector retrieval","system architecture","real-time indexing"],"regions":[]},"confidence":"high"}
+{"id":213,"category":"technology","tags":{"companies":["Tsinghua University"],"people":[],"keywords":["具身智能","VLA","tokenization"],"regions":[]},"confidence":"high"}
+{"id":214,"category":"technology","tags":{"companies":["日冕科技","远图智能"],"people":[],"keywords":["物理AI","具身智能","动觉语言模型"],"regions":[]},"confidence":"high"}
+{"id":215,"category":"technology","tags":{"companies":["Shanghai AI Lab"],"people":[],"keywords":["Agent","chemical experiment","bilateral coordination"],"regions":[]},"confidence":"high"}
+{"id":216,"category":"technology","tags":{"companies":["酷哇科技"],"people":["何宁","李骏"],"keywords":["双层智能体世界模型","具身智能","自动驾驶"],"regions":["中国"]},"confidence":"high"}
+{"id":217,"category":"technology","tags":{"companies":["Xiaohongshu"],"people":[],"keywords":["mathematical reasoning","IMO benchmark","domain-specific training"],"regions":[]},"confidence":"high"}

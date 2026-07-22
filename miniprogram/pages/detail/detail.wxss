@@ -74,6 +74,12 @@
   border-color: #d6bcfa;
 }
 
+.subtag-chip-region {
+  color: #2f855a;
+  background: #f0fff4;
+  border-color: #9ae6b4;
+}
+
 /* 核心要点 */
 .keypoints-section {
   padding: 32rpx 32rpx 0;

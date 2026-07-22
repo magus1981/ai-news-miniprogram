@@ -38,7 +38,7 @@ async function callQwen(messages, temperature = 0.5) {
 }
 
 /**
- * 规范化AI返回的tags对象为 {companies:[], people:[], keywords:[]}，每类最多3个
+ * 规范化AI返回的tags对象为 {companies:[], people:[], keywords:[], regions:[]}，每类最多3个
  */
 function normalizeTags(raw) {
   const clean = (arr) => Array.isArray(arr)
@@ -48,10 +48,11 @@ function normalizeTags(raw) {
     companies: clean(raw?.companies),
     people: clean(raw?.people),
     keywords: clean(raw?.keywords),
+    regions: clean(raw?.regions),
   };
 }
 
-const TAGS_SPEC = `"tags": {"companies": ["公司名"], "people": ["人物名"], "keywords": ["关键词"]}（公司用通用英文名如OpenAI、Google DeepMind、阿里巴巴；人物用业界惯用名，惯用中文用中文如黄仁勋、惯用英文用英文如Sam Altman；每类最多3个，没有则空数组）`;
+const TAGS_SPEC = `"tags": {"companies": ["公司名"], "people": ["人物名"], "keywords": ["关键词"], "regions": ["区域"]}（公司用通用英文名如OpenAI、Google DeepMind、阿里巴巴；人物用业界惯用名，惯用中文用中文如黄仁勋、惯用英文用英文如Sam Altman；regions仅在涉及地缘/监管时填，如 中国、美国、欧盟、英国、日本，无则空数组；每类最多3个，没有则空数组）`;
 
 /**
  * 为单篇文章生成中文精华总结（同时提取tags子标签）

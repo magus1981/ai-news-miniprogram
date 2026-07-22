@@ -134,7 +134,7 @@ function handleRequest(req, res) {
     // GET /api/tags（聚合全库tags，按出现次数降序，各取Top 30）
     if (pathname === '/api/tags') {
       const rows = db.prepare(`SELECT tags FROM articles WHERE tags LIKE '{%'`).all();
-      const counters = { companies: {}, people: {}, keywords: {} };
+      const counters = { companies: {}, people: {}, keywords: {}, regions: {} };
 
       for (const row of rows) {
         const obj = parseTags(row.tags);
@@ -159,6 +159,7 @@ function handleRequest(req, res) {
         companies: top(counters.companies),
         people: top(counters.people),
         keywords: top(counters.keywords),
+        regions: top(counters.regions),
       });
     }
 

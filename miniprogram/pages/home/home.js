@@ -107,11 +107,12 @@ Page({
     this.updateHotTags();
   },
 
-  // 公司/观点分类时加载热门子标签（Top 10）
+  // 公司/观点/政策分类时加载热门子标签（Top 10）
   async updateHotTags() {
     const { activeCategory } = this.data;
     const key = activeCategory === 'company' ? 'companies'
       : activeCategory === 'opinion' ? 'people'
+      : activeCategory === 'policy' ? 'regions'
       : null;
 
     if (!key) {

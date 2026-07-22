@@ -17,7 +17,7 @@ module.exports = async (req, res) => {
     const db = getDB();
     const result = await db.execute(`SELECT tags FROM articles WHERE tags LIKE '{%'`);
 
-    const counters = { companies: {}, people: {}, keywords: {} };
+    const counters = { companies: {}, people: {}, keywords: {}, regions: {} };
     for (const row of result.rows) {
       const obj = parseTags(row.tags);
       if (!obj) continue;
@@ -41,6 +41,7 @@ module.exports = async (req, res) => {
       companies: top(counters.companies),
       people: top(counters.people),
       keywords: top(counters.keywords),
+      regions: top(counters.regions),
     });
 
   } catch (err) {

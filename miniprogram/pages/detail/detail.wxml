@@ -25,9 +25,9 @@
         原标题：{{article.original_title}}
       </view>
 
-      <!-- 子标签组：公司+人物，全部可点击跳标签页 -->
+      <!-- 子标签组：公司+人物+区域，全部可点击跳标签页 -->
       <view
-        wx:if="{{article.tags && ((article.tags.companies && article.tags.companies.length > 0) || (article.tags.people && article.tags.people.length > 0))}}"
+        wx:if="{{article.tags && ((article.tags.companies && article.tags.companies.length > 0) || (article.tags.people && article.tags.people.length > 0) || (article.tags.regions && article.tags.regions.length > 0))}}"
         class="detail-subtags"
       >
         <text
@@ -44,6 +44,14 @@
           class="subtag-chip subtag-chip-people"
           data-tag="{{item}}"
           data-type="people"
+          catchtap="onTagTap"
+        >{{item}}</text>
+        <text
+          wx:for="{{article.tags.regions}}"
+          wx:key="*this"
+          class="subtag-chip subtag-chip-region"
+          data-tag="{{item}}"
+          data-type="regions"
           catchtap="onTagTap"
         >{{item}}</text>
       </view>

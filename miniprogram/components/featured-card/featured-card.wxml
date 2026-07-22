@@ -20,5 +20,12 @@
       data-type="people"
       catchtap="onSubtagTap"
     >{{article.tags.people[0]}}</text>
+    <text
+      wx:elif="{{article.category === 'policy' && article.tags && article.tags.regions && article.tags.regions.length > 0}}"
+      class="subtag-chip subtag-chip-region"
+      data-tag="{{article.tags.regions[0]}}"
+      data-type="regions"
+      catchtap="onSubtagTap"
+    >{{article.tags.regions[0]}}</text>
   </view>
 </view>
