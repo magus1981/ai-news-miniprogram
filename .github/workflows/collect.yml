@@ -35,16 +35,16 @@ jobs:
           mkdir -p data
           curl -sf -H "x-sync-token: ${{ secrets.SYNC_TOKEN }}" \
             -o data/articles.db "${{ secrets.SYNC_URL }}/api/sync-download" \
-            && echo "DB pulled: $(ls -lh data/articles.db | awk '{print $5}')" \
-            || echo "WARN: pull failed, starting from empty DB"
+            && echo "[OK] DB pulled: $(ls -lh data/articles.db | awk '{print $5}')" \
+            || echo "[WARN] pull failed, starting from empty DB"
 
+      # 中途报错（如导语生成超时）不阻断推送——已入库的数据照样同步；
+      # 服务器侧有防误清库保护（新库条数<现有一半会被拒收）
       - name: Run collection pipeline
         working-directory: ./pipeline
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-        # 中途报错（如导语生成超时）不阻断推送——已入库的数据照样同步；
-        # 服务器侧有防误清库保护（新库条数<现有一半会被拒收）
-        run: node collect.mjs || echo "WARN: pipeline exited with error, pushing current DB state"
+        run: node collect.mjs || echo "[WARN] pipeline exited with error, pushing current DB state"
 
       - name: Push DB to production
         working-directory: ./pipeline
