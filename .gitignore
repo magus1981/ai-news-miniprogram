@@ -1,7 +1,14 @@
-node_modules/
+﻿node_modules/
 .env
 *.db
 *.db-shm
 *.db-wal
 *.db.bak*
 *.log
+
+tmp-*.mjs
+tmp-*.txt
+*.bak-*
+*.db.upload-*
+preview-qr.png
+tunnel-*.out
