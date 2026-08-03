@@ -6,7 +6,9 @@
   "scripts": {
     "server": "node local-server.mjs",
     "collect": "cd pipeline && node collect.mjs",
-    "init-db": "cd pipeline && node collect.mjs --init"
+    "init-db": "cd pipeline && node collect.mjs --init",
+    "test:pure": "cd pipeline && node tests/test-pure.mjs",
+    "test:llm": "cd pipeline && node --import ./load-env.mjs tests/test-llm-rules.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0"

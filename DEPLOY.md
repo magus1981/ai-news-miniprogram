@@ -113,7 +113,11 @@ curl "<VERCEL_URL>/api/article/202"
 
 ### 1. 推送代码（本地 git 仓库已就绪，含首次 commit）
 
-在 GitHub 网页新建一个**空仓库**（不要勾 README/.gitignore），然后：
+> ⚠️ 本机**尚未安装 git 命令行**。先二选一：
+> - 方式A（命令行）：装 [Git for Windows](https://git-scm.com/download/win)，装完重开终端。若 `.git` 不存在先 `git init` 并 `git add . && git commit -m "init"`。
+> - 方式B（图形界面，免命令）：装 [GitHub Desktop](https://desktop.github.com/)，登录后 Add Local Repository 选 `ai-news-miniprogram` 目录 → Publish repository。
+
+在 GitHub 网页新建一个**空仓库**（不要勾 README/.gitignore），然后（方式A）：
 
 ```powershell
 cd D:\20260402qoder\ai-news-miniprogram
@@ -145,7 +149,7 @@ AI筛选完成: N条 -> M条入选
 写入完成: 新增 X 条, 跳过 Y 条(重复)
 ```
 
-之后每天北京时间 08:00 / 18:00 自动采集（cron 已配置，无需干预）。
+之后每天北京时间 08:00 / 14:00 / 20:00 自动三轮采集（共享每日 10-20 条日配额，增量轮只补高价值新增；cron 已配置，无需干预）。
 
 > 注：runner 是 ubuntu-latest，自带 curl（机器之心爬虫依赖）、Node 20 由 setup-node 提供、`npm install` 会装 cheerio，均已确认无缺失。
 
@@ -166,6 +170,26 @@ prod: {
 ```
 
 微信开发者工具重新编译即可。正式发布前记得在微信公众平台 → 开发管理 → 服务器域名 → request 合法域名中添加 `https://ai-news-api-xxxx.vercel.app`。
+
+---
+
+## 本地兜底采集任务（临时，云端 ③ 就绪后请删除）
+
+为保证云端部署完成前每天也有新数据，已注册一个 Windows 计划任务 **AINewsCollect**：
+
+- 每天 **08:00** 本地跑一轮 `pipeline/collect.mjs`（写本地 `data/articles.db`），`StartWhenAvailable`：若 8 点电脑没开，开机后会自动补跑
+- 依赖：电脑开机、不休眠；用 `C:\Program Files\nodejs\node.exe`；日志在 `pipeline/collect-cron.log`
+- 包装脚本：`pipeline/run-collect.ps1`
+
+常用命令（PowerShell）：
+
+```powershell
+Get-ScheduledTaskInfo -TaskName AINewsCollect        # 看下次/上次运行
+Start-ScheduledTask   -TaskName AINewsCollect        # 立即手动跑一轮
+Unregister-ScheduledTask -TaskName AINewsCollect -Confirm:$false   # 云端就绪后删除
+```
+
+> ⚠️ 云端 GitHub Actions 上线后，务必删除该本地任务，否则本地库与云端库会各跑各的、产生两套数据。
 
 ---
 

@@ -13,6 +13,7 @@ import './load-env.mjs'; // 必须最先加载
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, appendFileSync, existsSync } from 'fs';
+import { CATEGORY_RULES, VALID_CATEGORIES, applyTagInvariants } from './classify-rules.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,7 +22,6 @@ const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 const RESULTS_FILE = join(__dirname, 'reclassify-results.jsonl');
 
-const VALID_CATEGORIES = ['company', 'technology', 'opensource', 'funding', 'opinion', 'policy', 'noise'];
 const TAG_KEYS = ['companies', 'people', 'keywords', 'regions'];
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -58,23 +58,13 @@ async function callQwen(messages, temperature = 0.2) {
 
 const PROMPT = `你是AI行业资讯分类器。请对下面这篇文章做一级分类并提取子标签。
 
-## 一级分类（只选一个，按"文章最主要的价值点"判定）
-- company（公司）：AI公司的商业动作——新模型/产品发布的商业维度、战略调整、高管变动、定价/API变更、签单营收、大厂AI布局
-- technology（技术）：技术本身的能力推进——基准新纪录、新架构/算法/训练方法、安全对齐研究、Agent/RAG等工程范式实质进展、官方技术博客的深度技术解读
-- opensource（开源）：开放权重模型发布与更新、开源框架/工具、HF/GitHub高热项目、开源协议争议。【开源特权规则：涉及开放权重/开源协议的内容优先归开源】
-- funding（融资）：融资事件、并购、IPO、风投基金、算力巨额资本支出
-- opinion（观点）：行业领袖言论访谈、趋势报告、技术路线争论、AI对社会影响的严肃讨论。【拿不准归观点】
-- policy（政策）：各国AI立法监管、出口管制/芯片禁令、数据安全/隐私/版权法规判例、政府AI战略
-- noise：与AI无实质关联的内容（噪音，不归类）
-
-## 元规则
-1. 一文一分类，按主要价值点；2. 事件主体优先；3. 开源特权；4. 拿不准归opinion；5. 明显与AI无关归noise
+${CATEGORY_RULES}
 
 ## 子标签提取
-- companies：涉及的主要公司，通用英文名为主（如OpenAI、Google DeepMind、阿里巴巴），最多3个
+- companies：只填该新闻的当事方/主角（发布方、交易/合作双方、被报道的主体），最多3个；排除仅作为对比、竞品、基准测试、行业背景顺带提及的公司，以及仅作为被接入/被兼容/被支持对象被列举的第三方厂商——当事方判断优先于集团归并，非当事方即使能归并到某大厂也不填（如"某平台宣布接入通义千问、智谱GLM等第三方模型"只填平台方，严禁因通义千问隶属阿里巴巴而填 阿里巴巴）；一律按内容理解归并到集团/母公司规范名——子品牌/产品线/事业部/云部门/全资子公司归母公司（如 阿里云/通义→阿里巴巴，Azure/GitHub→微软，抖音/火山引擎→字节跳动），仅投资/参股关系的独立公司不归并（如 蚂蚁集团不归阿里巴巴）
 - people：涉及的主要人物，业界惯用名（惯用中文用中文如黄仁勋，惯用英文用英文如Sam Altman），最多3个
 - keywords：核心关键词，最多3个
-- regions：仅涉及地缘/监管时填（如 中国、美国、欧盟、英国、日本），无则空数组，最多3个
+- regions：仅当category为policy时填写（非政策文章一律空数组），且只填政策/监管动作的主体方——谁立法/谁监管/谁发布政策就填谁，被制裁/被针对/被影响的国家不填（如"美国对中国AI模型实施禁令"只填 美国），仅多国联合发布时才填多个；只填国家/地区级名称（如 中国、美国、欧盟、英国、日本），严禁填城市名——事件发生在某城市时写所属国（如"在伦敦启动测试"填 英国不填伦敦），无则空数组
 
 ## 输出（严格JSON，不要输出其他内容）
 {"category":"...", "tags":{"companies":[],"people":[],"keywords":[],"regions":[]}, "confidence":"high|medium|low"}`;
@@ -112,7 +102,7 @@ async function classifyArticle(row) {
           : [];
       }
       const confidence = ['high', 'medium', 'low'].includes(result.confidence) ? result.confidence : 'medium';
-      return { id: row.id, category: result.category, tags, confidence };
+      return { id: row.id, category: result.category, tags: applyTagInvariants(result.category, tags), confidence };
     } catch (err) {
       lastErr = err;
       if (attempt < 2) await sleep(500);

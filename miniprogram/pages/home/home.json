@@ -1,6 +1,5 @@
 {
   "usingComponents": {
-    "featured-card": "/components/featured-card/featured-card",
     "article-item": "/components/article-item/article-item"
   },
   "enablePullDownRefresh": true

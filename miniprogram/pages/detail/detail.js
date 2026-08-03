@@ -40,6 +40,13 @@ Page({
     });
   },
 
+  // 此前相关报道点击，跳对应详情页
+  onRelatedTap(e) {
+    const { id } = e.currentTarget.dataset;
+    if (!id) return;
+    wx.navigateTo({ url: `/pages/detail/detail?id=${id}` });
+  },
+
   // 收藏/取消收藏
   toggleFavorite() {    const { article, isFavorited } = this.data;
     if (!article) return;

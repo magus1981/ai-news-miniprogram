@@ -1,0 +1,19 @@
+共 18 条
+478 score=89 精选 stage=refined tier=重要 rank=2 rough=yes
+491 score=89 精选 stage=refined tier=重要 rank=1 rough=yes
+479 score=84 精选 stage=refined tier=重要 rank=3 rough=yes
+492 score=80 精选 stage=refined tier=重要 rank=3 rough=yes
+480 score=79 stage=refined tier=值得看 rank=5 demoted_from=重要 rough=yes
+493 score=79 stage=refined tier=值得看 rank=4 demoted_from=重要 rough=yes
+481 score=78 stage=refined tier=值得看 rank=6 demoted_from=重要 rough=yes
+494 score=78 stage=refined tier=值得看 rank=5 demoted_from=重要 rough=yes
+482 score=77 stage=refined tier=值得看 rank=8 rough=yes
+483 score=77 stage=refined tier=值得看 rank=7 demoted_from=重要 rough=yes
+484 score=76 stage=refined tier=值得看 rank=8 demoted_from=重要 rough=yes
+495 score=76 stage=refined tier=值得看 rank=7 rough=yes
+485 score=75 stage=refined tier=值得看 rank=9 rough=yes
+486 score=70 stage=refined tier=值得看 rank=13 rough=yes
+487 score=69 stage=refined tier=可看 rank=20 rough=yes
+488 score=68 stage=refined tier=可看 rank=21 rough=yes
+489 score=68 stage=refined tier=可看 rank=22 rough=yes
+490 score=67 stage=refined tier=可看 rank=23 rough=yes

@@ -6,7 +6,7 @@
  *   2. node seed-turso.mjs
  *
  * 幂等：CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE（按 id / source_url 去重），可重复运行
- * 表结构与本地SQLite完全一致（含 content/tags/key_points 三列）
+ * 表结构与本地SQLite完全一致（含 is_breaking/content/tags/key_points 列）
  */
 import './load-env.mjs'; // 必须最先加载
 import { fileURLToPath } from 'url';
@@ -24,7 +24,7 @@ if (!TURSO_URL || !TURSO_AUTH_TOKEN) {
   process.exit(1);
 }
 
-// 与本地SQLite完全一致的表结构（含 content/tags/key_points 三列）
+// 与本地SQLite完全一致的表结构（含 is_breaking/content/tags/key_points 列）
 const CREATE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS articles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +36,7 @@ const CREATE_TABLE_SQL = `
     summary TEXT,
     ai_score REAL,
     is_featured INTEGER DEFAULT 0,
+    is_breaking INTEGER DEFAULT 0,
     published_at TEXT NOT NULL,
     collected_at TEXT DEFAULT (datetime('now')),
     date_key TEXT NOT NULL,
@@ -48,7 +49,7 @@ const IDX2 = `CREATE INDEX IF NOT EXISTS idx_featured ON articles(date_key, is_f
 
 const COLUMNS = [
   'id', 'title', 'original_title', 'source_name', 'source_url', 'category',
-  'summary', 'ai_score', 'is_featured', 'published_at', 'collected_at', 'date_key',
+  'summary', 'ai_score', 'is_featured', 'is_breaking', 'published_at', 'collected_at', 'date_key',
   'content', 'tags', 'key_points',
 ];
 

@@ -7,14 +7,14 @@
   ],
   "window": {
     "navigationBarTitleText": "AI前沿资讯",
-    "navigationBarBackgroundColor": "#1a1a2e",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#f5f6fa",
+    "navigationBarBackgroundColor": "#f4f5fb",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f4f5fb",
     "backgroundTextStyle": "dark"
   },
   "tabBar": {
-    "color": "#999999",
-    "selectedColor": "#1a1a2e",
+    "color": "#9ca3af",
+    "selectedColor": "#6366f1",
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [

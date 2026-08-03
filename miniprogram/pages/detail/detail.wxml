@@ -25,6 +25,9 @@
         原标题：{{article.original_title}}
       </view>
 
+      <!-- 一句话要点：扫一眼就知道这条新闻是什么 -->
+      <view wx:if="{{article.takeaway}}" class="takeaway-box">{{article.takeaway}}</view>
+
       <!-- 子标签组：公司+人物+区域，全部可点击跳标签页 -->
       <view
         wx:if="{{article.tags && ((article.tags.companies && article.tags.companies.length > 0) || (article.tags.people && article.tags.people.length > 0) || (article.tags.regions && article.tags.regions.length > 0))}}"
@@ -70,6 +73,27 @@
     <view class="summary-section">
       <view class="summary-label">AI 精华总结</view>
       <view class="summary-content">{{article.summary || '暂无总结'}}</view>
+    </view>
+
+    <!-- 原文金句（程序校验逐字来自原文，无则不显示） -->
+    <view wx:if="{{article.quote}}" class="quote-section">
+      <view class="quote-text">“{{article.quote}}”</view>
+      <view class="quote-src">—— 摘自原文</view>
+    </view>
+
+    <!-- 此前相关报道（后端分层判定，不够相关时返回空、整块不展示） -->
+    <view wx:if="{{article.related && article.related.length > 0}}" class="related-section">
+      <view class="related-label">此前相关报道</view>
+      <view
+        wx:for="{{article.related}}"
+        wx:key="id"
+        class="related-item"
+        data-id="{{item.id}}"
+        bindtap="onRelatedTap"
+      >
+        <text class="related-title">{{item.title}}</text>
+        <text class="related-meta">{{item.relationLabel}} · {{item.date_key}} · {{item.source_name}}</text>
+      </view>
     </view>
 
     <!-- 底部操作栏 -->

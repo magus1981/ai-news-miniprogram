@@ -1,8 +1,8 @@
 <view class="tag-page">
   <!-- 标签头部 -->
   <view class="tag-header">
-    <view class="tag-name">#{{tag}}</view>
-    <view class="tag-count">{{total}} 篇相关文章</view>
+    <view class="tag-name">{{tag}}</view>
+    <view class="tag-count">{{total}} 篇{{isRegion ? '政策动态' : '相关文章'}}</view>
   </view>
 
   <!-- 加载中 -->

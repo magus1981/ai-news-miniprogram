@@ -1,6 +1,9 @@
 <wxs src="../../utils/fmt.wxs" module="fmt" />
-<view class="article-item" bindtap="onTap">
-  <view class="article-title">{{article.title}}</view>
+<view class="article-item {{article.is_breaking ? 'article-item-breaking' : ''}}" bindtap="onTap">
+  <view class="article-head">
+    <view class="article-title">{{article.title}}</view>
+    <text wx:if="{{article.ai_score}}" class="score-badge {{fmt.scoreBandClass(article.ai_score)}}">{{fmt.scoreBand(article.ai_score)}}</text>
+  </view>
   <view class="article-meta">
     <text class="article-source">{{article.source_name}}</text>
     <text class="article-time">{{fmt.relativeTime(article.published_at)}}</text>
@@ -27,6 +30,7 @@
       data-type="regions"
       catchtap="onSubtagTap"
     >{{article.tags.regions[0]}}</text>
+    <text wx:if="{{article.is_breaking}}" class="article-breaking">突发</text>
     <text wx:if="{{article.is_featured}}" class="article-hot">精选</text>
   </view>
 </view>

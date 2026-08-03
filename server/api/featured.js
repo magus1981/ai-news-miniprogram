@@ -21,7 +21,7 @@ module.exports = async (req, res) => {
     const result = await db.execute({
       sql: `SELECT id, title, original_title, source_name, source_url, category, summary, ai_score, published_at, tags
             FROM articles 
-            WHERE date_key = ? AND is_featured = 1
+            WHERE date_key = ? AND is_featured = 1 AND category != 'noise'
             ORDER BY ai_score DESC`,
       args: [date],
     });

@@ -2,15 +2,17 @@ name: AI News Collection Pipeline
 
 on:
   schedule:
-    # 每天 00:00 UTC (北京时间 08:00) 和 10:00 UTC (北京时间 18:00)
+    # 一日三轮采集（共享每日10-20条日配额，增量轮只补高价值新增）：
+    # 北京时间 08:00 / 14:00 / 20:00 = UTC 00:00 / 06:00 / 12:00
     - cron: '0 0 * * *'
-    - cron: '0 10 * * *'
+    - cron: '0 6 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch: # 支持手动触发
 
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -25,10 +27,28 @@ jobs:
         working-directory: ./pipeline
         run: npm install
 
+      # 采集前先从生产服务器拉取当前库：Actions 每次是全新工作区，
+      # 没有历史库就会从空库采集，推送后把服务器历史抹掉。
+      # 拉取失败（服务器不可达/无数据）时降级为空库，继续往下走。
+      - name: Pull current DB from production
+        run: |
+          mkdir -p data
+          curl -sf -H "x-sync-token: ${{ secrets.SYNC_TOKEN }}" \
+            -o data/articles.db "${{ secrets.SYNC_URL }}/api/sync-download" \
+            && echo "DB pulled: $(ls -lh data/articles.db | awk '{print $5}')" \
+            || echo "WARN: pull failed, starting from empty DB"
+
       - name: Run collection pipeline
         working-directory: ./pipeline
         env:
-          TURSO_URL: ${{ secrets.TURSO_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-        run: node collect.mjs
+        # 中途报错（如导语生成超时）不阻断推送——已入库的数据照样同步；
+        # 服务器侧有防误清库保护（新库条数<现有一半会被拒收）
+        run: node collect.mjs || echo "WARN: pipeline exited with error, pushing current DB state"
+
+      - name: Push DB to production
+        working-directory: ./pipeline
+        env:
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: node sync-push.mjs

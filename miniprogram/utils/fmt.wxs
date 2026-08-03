@@ -5,7 +5,8 @@ var LABELS = {
   opensource: '开源',
   funding: '融资',
   opinion: '观点',
-  policy: '政策'
+  policy: '政策',
+  infra: '基建'
 };
 
 function categoryLabel(c) {
@@ -43,8 +44,37 @@ function relativeTime(iso) {
   return formatTime(iso).substring(0, 10);
 }
 
+// 分数档位标签：前台不再显示裸分值。
+// 裸分值把“模型给的一个相对排序权”假装成精到个位的客观测量，
+// 2026-07-30 当天满屏 60-75 分时用户看到的只是一堆无意义的数字。
+// 档位与 pipeline/ai-filter.mjs 的 SCORE_BANDS 口径一一对应，改一边必须同步另一边。
+function scoreBand(score) {
+  // WXS 的 Number 只有常量属性、不能当函数调用（写 Number(x) 会整个 wxml 编译失败，
+  // 表现为真机调试连二维码都出不来），故用乘一转数值；非数值得 NaN，被下面的 !s 兜住
+  var s = score * 1;
+  if (!s) return '';
+  if (s >= 90) return '重磅';
+  if (s >= 80) return '重要';
+  if (s >= 70) return '值得看';
+  if (s >= 60) return '可看';
+  return '边缘';
+}
+
+// 档位对应的样式类（见 app.wxss 的 .score-badge.score-s～d）
+function scoreBandClass(score) {
+  var s = score * 1; // 同上：WXS 不支持 Number() 调用
+  if (!s) return '';
+  if (s >= 90) return 'score-s';
+  if (s >= 80) return 'score-a';
+  if (s >= 70) return 'score-b';
+  if (s >= 60) return 'score-c';
+  return 'score-d';
+}
+
 module.exports = {
   categoryLabel: categoryLabel,
   formatTime: formatTime,
-  relativeTime: relativeTime
+  relativeTime: relativeTime,
+  scoreBand: scoreBand,
+  scoreBandClass: scoreBandClass
 };

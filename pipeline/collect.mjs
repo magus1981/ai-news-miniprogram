@@ -2,18 +2,25 @@
  * 采集主流程：RSS/爬虫采集 -> AI筛选 -> AI总结 -> 写入数据库
  * 
  * 用法：
- *   node collect.mjs          # 正常采集
- *   node collect.mjs --init   # 仅初始化数据库表
+ *   node collect.mjs           # 正常采集
+ *   node collect.mjs --init    # 仅初始化数据库表
+ *   node collect.mjs --health  # 仅采集+记录信源健康（不跑AI、不入库文章，供排查信源）
  */
 import './load-env.mjs'; // 必须最先加载：后续模块在求值时读取 process.env
 import Parser from 'rss-parser';
 import { pathToFileURL } from 'url';
-import { SOURCES } from './sources.mjs';
-import { filterArticles } from './ai-filter.mjs';
+import { SOURCES, alertThreshold } from './sources.mjs';
+import { filterArticles, RECENT_TITLE_DAYS, beijingDayKey } from './ai-filter.mjs';
+import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
-import { initDB, insertArticles } from './db.mjs';
+import { reviewSummaries } from './ai-review.mjs';
+import { generateDailyIntro } from './ai-intro.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getArticlesByDate } from './db.mjs';
 import { scrapeQbitai } from './scraper-qbitai.mjs';
 import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
+import { scrapeAnthropic } from './scraper-anthropic.mjs';
+import { scrapeZhidx, scrapeXindongxi } from './scraper-zhidx.mjs';
+import { scrapeXinzhiyuan } from './scraper-xinzhiyuan.mjs';
 
 const parser = new Parser();
 
@@ -26,6 +33,10 @@ const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const SCRAPERS = {
   qbitai: scrapeQbitai,
   jiqizhixin: scrapeJiqizhixin,
+  anthropic: scrapeAnthropic,
+  zhidx: scrapeZhidx,
+  xindongxi: scrapeXindongxi,
+  xinzhiyuan: scrapeXinzhiyuan,
 };
 
 /**
@@ -68,8 +79,10 @@ export function filterByFreshness(articles, source) {  const now = Date.now();
 
 /**
  * 采集单个RSS源（用fetch+parseString代替parseURL，避免兼容性问题）
+ * 失败自动重试一次：瞬时网络抖动不应计入当日0产出，污染健康记录
+ * @returns {{articles: Array, raw: number, error: string|null}} raw为feed原始条数（供健康记录区分"源死了"和"源活着但无新内容"）
  */
-async function fetchSource(source) {
+async function fetchSource(source, attempt = 1) {
   try {
     const res = await fetch(source.url, {
       headers: { 'User-Agent': source.userAgent || 'Mozilla/5.0 (compatible; AINewsBot/1.0)' },
@@ -78,6 +91,7 @@ async function fetchSource(source) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const xml = await res.text();
     const feed = await parser.parseString(xml);
+    const rawCount = (feed.items || []).length;
     const now = Date.now();
     const cutoff = now - HOURS_WINDOW * 60 * 60 * 1000;
     const official = isOfficialSource(source);
@@ -104,11 +118,16 @@ async function fetchSource(source) {
       .filter(a => a.title && a.source_url); // 过滤无效条目
 
     console.log(`  [OK] ${source.name}: ${articles.length} 条`);
-    return articles;
+    return { articles, raw: rawCount, error: null };
 
   } catch (err) {
+    if (attempt < 2) {
+      console.warn(`  [RETRY] ${source.name}: ${err.message}，3秒后重试`);
+      await new Promise(r => setTimeout(r, 3000));
+      return fetchSource(source, attempt + 1);
+    }
     console.error(`  [FAIL] ${source.name}: ${err.message}`);
-    return [];
+    return { articles: [], raw: 0, error: err.message };
   }
 }
 
@@ -119,13 +138,43 @@ async function fetchScraperSource(source) {
   const scrapeFn = SCRAPERS[source.scraper];
   if (!scrapeFn) {
     console.error(`  [FAIL] ${source.name}: 未注册的爬虫 "${source.scraper}"`);
-    return [];
+    return { articles: [], raw: 0, error: `未注册的爬虫 "${source.scraper}"` };
   }
   const articles = await scrapeFn(source); // 爬虫内部已try/catch
   // 与RSS源相同的时效过滤（爬虫返回的 published_at 为ISO串或null）
   const fresh = filterByFreshness(articles, source);
   console.log(`  [OK] ${source.name}: ${fresh.length} 条（爬虫原始 ${articles.length} 条）`);
-  return fresh;
+  // 爬虫内部失败时返回空数组：raw=0 即可反映异常，无需额外error
+  return { articles: fresh, raw: articles.length, error: null };
+}
+
+/**
+ * 连续0产出告警计算：从最近一条健康记录往前数连续 fetched=0 的天数，
+ * 达到该源阈值（官方7天/媒体3天）即告警；记录不足阈值天数时不告警（避免新源误报）
+ * @param {Array} history - getSourceHealthHistory 返回的记录（日期降序）
+ * @param {Array} sources - 信源配置列表
+ */
+export function computeHealthAlerts(history, sources) {
+  const bySource = new Map();
+  for (const r of history) {
+    if (!bySource.has(r.source_name)) bySource.set(r.source_name, []);
+    bySource.get(r.source_name).push(r);
+  }
+  const alerts = [];
+  for (const source of sources) {
+    const recs = bySource.get(source.name) || [];
+    const threshold = alertThreshold(source);
+    let zeroDays = 0;
+    for (const r of recs) {
+      if (r.fetched === 0) zeroDays++;
+      else break;
+    }
+    if (recs.length >= threshold && zeroDays >= threshold) {
+      const lastError = recs.find(r => r.error)?.error || null;
+      alerts.push({ name: source.name, zeroDays, threshold, lastError });
+    }
+  }
+  return alerts;
 }
 
 /**
@@ -148,58 +197,145 @@ async function main() {
   // Step 1: 确保数据库表存在
   await initDB();
 
-  // Step 2: 采集所有源（RSS + 爬虫，按 type 分派）
+  // Step 2: 采集所有源（RSS + 爬虫，按 type 分派），同步记录各源产出供健康监控
   console.log('--- Step 1: 采集 ---');
   const allArticles = [];
+  const healthStats = [];
   for (const source of SOURCES) {
-    const articles = source.type === 'scraper'
+    const { articles, raw, error } = source.type === 'scraper'
       ? await fetchScraperSource(source)
       : await fetchSource(source);
+    healthStats.push({ source_name: source.name, fetched: articles.length, raw, error });
     allArticles.push(...articles);
   }
   console.log(`采集完成: 共 ${allArticles.length} 条原始文章\n`);
+
+  // Step 2.1: 信源健康——先记录后告警（必须在"无文章提前退出"之前执行：
+  // 全部源挂掉正是最需要记录和告警的时刻）
+  const todayKey = new Date().toISOString().split('T')[0];
+  await recordSourceHealth(todayKey, healthStats);
+  const healthHistory = await getSourceHealthHistory(14);
+  const alerts = computeHealthAlerts(healthHistory, SOURCES);
+  if (alerts.length) {
+    console.log('!!! 信源健康告警 !!!');
+    for (const a of alerts) {
+      console.log(`  [ALERT] ${a.name}: 连续 ${a.zeroDays} 天 0 产出（阈值 ${a.threshold} 天）${a.lastError ? `，最近错误: ${a.lastError}` : ''}`);
+    }
+    console.log('');
+  }
+
+  // 仅健康检查模式：打印各源明细后退出，不跑AI、不入库文章
+  if (args.includes('--health')) {
+    console.log('--- 信源健康明细 ---');
+    for (const s of healthStats) {
+      const flag = s.fetched > 0 ? 'OK  ' : (s.error ? 'FAIL' : 'ZERO');
+      console.log(`  [${flag}] ${s.source_name}: 新鲜 ${s.fetched} / 原始 ${s.raw}${s.error ? ` | ${s.error}` : ''}`);
+    }
+    console.log(`\n告警数: ${alerts.length}`);
+    return;
+  }
 
   if (allArticles.length === 0) {
     console.log('没有采集到任何文章，退出');
     return;
   }
 
-  // Step 3: 去重（按URL）
+  // Step 3: 去重（批内按URL）
   const seen = new Set();
-  const uniqueArticles = allArticles.filter(a => {
+  const batchUnique = allArticles.filter(a => {
     if (seen.has(a.source_url)) return false;
     seen.add(a.source_url);
     return true;
   });
-  console.log(`去重后: ${uniqueArticles.length} 条\n`);
 
-  // Step 4: AI筛选评分
+  // Step 3.5: 入库前硬过滤——剔除已在库中的文章（制度性保障：
+  // 旧文章不进入AI筛选，不占用当日20条入选名额，避免写库时才被跳过）
+  const existingUrls = await getExistingUrls(batchUnique.map(a => a.source_url));
+  const uniqueArticles = batchUnique.filter(a => !existingUrls.has(a.source_url));
+  const oldDropped = batchUnique.length - uniqueArticles.length;
+  console.log(`去重后: ${uniqueArticles.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}\n`);
+
+  if (uniqueArticles.length === 0) {
+    console.log('无新文章可筛选，退出');
+    return;
+  }
+
+  // Step 4: AI筛选评分（传入近期已入库标题，用于旧闻对照与事件去重）
+  // 归日按“发布北京日”：本轮文章可能跨多个发布日（采集窗口72小时），
+  // 逐日载入该日已入库数/精选数/精选最低分，供各日独立结算“每日10-20条/精选5条”。
   console.log('--- Step 2: AI筛选 ---');
-  const selected = await filterArticles(uniqueArticles);
+  const affectedDays = [...new Set(uniqueArticles.map(a => beijingDayKey(a.published_at)))];
+  const todayBJ = beijingDayKey(new Date().toISOString());
+  if (!affectedDays.includes(todayBJ)) affectedDays.push(todayBJ); // 无日期兜底稿归今天，确保有其上下文
+  const dayContexts = {};
+  for (const d of affectedDays) {
+    const c = await getDayCounts(d);
+    let featuredMinScore = 0;
+    if (c.featured > 0) {
+      const arts = await getArticlesByDate(d);
+      const fs = arts.filter(a => a.is_featured).map(a => a.ai_score).filter(s => typeof s === 'number');
+      featuredMinScore = fs.length ? Math.min(...fs) : 0;
+    }
+    dayContexts[d] = { existingCount: c.count, existingFeatured: c.featured, featuredMinScore };
+    if (c.count > 0) console.log(`  发布日 ${d}: 已入库 ${c.count} 条（精选 ${c.featured} 条），本轮作增量处理`);
+  }
+  const recentTitles = await getRecentTitles(RECENT_TITLE_DAYS);
+  if (recentTitles.length) console.log(`旧闻对照: 载入近${RECENT_TITLE_DAYS}天已入库标题 ${recentTitles.length} 条`);
+  const selected = await filterArticles(uniqueArticles, recentTitles, dayContexts);
   if (selected.length === 0) {
-    console.log('AI筛选后无达标文章，退出');
+    console.log('AI筛选后无达标文章（或各日配额已满），退出');
     return;
   }
   console.log('');
 
-  // Step 5: AI生成总结
+  // Step 4.5: 全文抓取（仅对入选文章，约20条）——摘要基于全文而非RSS片段，
+  // 从根源上减少"看标题脑补"型幻觉；原文同时入库存档供后续事实二审/重生成
+  console.log('--- Step 2.5: 全文抓取 ---');
+  await fetchFullContents(selected);
+  console.log('');
   console.log('--- Step 3: AI总结生成 ---');
   const summarized = await generateSummaries(selected);
   console.log('');
 
-  // Step 6: 写入数据库
+  // Step 5.5: AI二审（事实核对）——把每篇摘要与已抓取的原文素材逐项对照，
+  // 数字/公司归属/缩写展开/语义反转等确凿错误直接打回修正（幻觉的最后一道防线）
+  console.log('--- Step 3.5: AI二审事实核对 ---');
+  const reviewed = await reviewSummaries(summarized);
+  console.log('');
+
+  // Step 6: 写入数据库（noise分类为噪音，不入库）
   console.log('--- Step 4: 写入数据库 ---');
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  const finalArticles = summarized.map(a => ({
-    ...a,
-    date_key: today,
-  }));
+  const noiseCount = reviewed.filter(a => a.category === 'noise').length;
+  if (noiseCount > 0) console.log(`噪音过滤: 剔除与AI无实质关联的文章 ${noiseCount} 条`);
+  // date_key 已在 filterArticles 里按发布北京日打好；此处兜底一次（降级路径/缺失时同口径补上）
+  const finalArticles = reviewed
+    .filter(a => a.category !== 'noise')
+    .map(a => ({
+      ...a,
+      date_key: a.date_key || beijingDayKey(a.published_at),
+    }));
 
   await insertArticles(finalArticles);
 
+  // Step 7: 导语——本轮可能写入多个发布日，逐日基于该日全量已入库文章重生（而非仅本轮），
+  // 保证导语反映该日全天主线；失败不阻塞（前端无导语时不展示）
+  console.log('--- Step 5: 每日导语 ---');
+  const daysWithNew = [...new Set(finalArticles.map(a => a.date_key))];
+  for (const d of daysWithNew) {
+    const src = await getArticlesByDate(d); // 已包含本轮新写入的
+    const intro = await generateDailyIntro(src);
+    if (intro) {
+      console.log(`导语[${d}](${intro.length}字): ${intro}`);
+      await saveDailyIntro(d, intro);
+    }
+  }
+
   console.log('\n=== 采集完成 ===');
-  console.log(`今日精选: ${finalArticles.filter(a => a.is_featured).length} 条`);
-  console.log(`总计入库: ${finalArticles.length} 条`);
+  console.log(`本轮新增入库: ${finalArticles.length} 条，涉及发布日 ${daysWithNew.sort().join(', ')}`);
+  for (const d of daysWithNew.sort()) {
+    const dc = await getDayCounts(d);
+    console.log(`  ${d} 累计: ${dc.count} 条（精选 ${dc.featured} 条）`);
+  }
 }
 
 // 仅当作为脚本直接运行时才执行主流程（便于被测试脚本import）

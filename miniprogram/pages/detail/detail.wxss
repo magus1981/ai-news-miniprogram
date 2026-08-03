@@ -51,6 +51,19 @@
   font-style: italic;
 }
 
+/* 一句话要点 */
+.takeaway-box {
+  margin-top: 20rpx;
+  padding: 20rpx 24rpx;
+  background: #f7faff;
+  border-left: 6rpx solid #4a6cf7;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #2d3748;
+  line-height: 1.6;
+}
+
 /* 子标签组 */
 .detail-subtags {
   display: flex;
@@ -138,6 +151,68 @@
   line-height: 1.9;
   text-align: justify;
   white-space: pre-wrap;
+}
+
+/* 原文金句 */
+.quote-section {
+  margin: 0 32rpx 8rpx;
+  padding: 24rpx 28rpx;
+  background: #fffaf0;
+  border-left: 6rpx solid #dd6b20;
+  border-radius: 8rpx;
+}
+
+.quote-text {
+  font-size: 28rpx;
+  color: #4a5568;
+  line-height: 1.8;
+  font-style: italic;
+}
+
+.quote-src {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #a0aec0;
+  text-align: right;
+}
+
+/* 此前相关报道 */
+.related-section {
+  padding: 32rpx;
+}
+
+.related-label {
+  display: inline-block;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #2f855a;
+  background: #f0fff4;
+  padding: 6rpx 16rpx;
+  border-radius: 6rpx;
+  margin-bottom: 20rpx;
+}
+
+.related-item {
+  display: flex;
+  flex-direction: column;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.related-item:last-child {
+  border-bottom: none;
+}
+
+.related-title {
+  font-size: 28rpx;
+  color: #2d3748;
+  line-height: 1.5;
+}
+
+.related-meta {
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: #a0aec0;
 }
 
 /* 底部操作栏 */

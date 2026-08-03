@@ -1,17 +1,39 @@
 .article-item {
-  background: #ffffff;
-  border-radius: 12rpx;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1rpx solid rgba(255, 255, 255, 0.9);
+  border-radius: 20rpx;
   padding: 24rpx;
   margin-bottom: 16rpx;
-  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.03);
+  box-shadow: 0 6rpx 24rpx rgba(99, 102, 241, 0.06);
+  backdrop-filter: blur(20rpx);
+  -webkit-backdrop-filter: blur(20rpx);
+}
+
+/* 突发：增量轮里够格今日必读水准但精选名额已满的全新事件，左侧红条高亮 */
+.article-item-breaking {
+  border-left: 6rpx solid #e53e3e;
+  background: rgba(255, 245, 245, 0.9);
+}
+
+.article-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  margin-bottom: 12rpx;
+}
+
+.article-head .score-badge {
+  flex-shrink: 0;
+  margin-top: 4rpx;
 }
 
 .article-title {
+  flex: 1;
+  min-width: 0;
   font-size: 30rpx;
   font-weight: 500;
-  color: #2d3748;
+  color: #1f2437;
   line-height: 1.5;
-  margin-bottom: 12rpx;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -46,12 +68,22 @@
   border-radius: 4rpx;
 }
 
+/* 突发角标：实心红底，比精选更醒目 */
+.article-breaking {
+  font-size: 20rpx;
+  color: #fff;
+  background: #e53e3e;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  font-weight: 600;
+}
+
 /* 子标签chip：浅色描边，区别于分类标签 */
 .subtag-chip {
   font-size: 20rpx;
-  color: #4a6cf7;
-  background: #f7faff;
-  border: 1rpx solid #c7d7fe;
+  color: #6366f1;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1rpx solid #dfe3fc;
   padding: 2rpx 12rpx;
   border-radius: 16rpx;
 }

@@ -1,10 +1,68 @@
 /**
- * MVP RSS源配置
- * 海外 3-5 个稳定源 + 国内 1-2 个直接RSS源（不依赖RSSHub）
+ * RSS源配置
+ * 海外官方博客 + 海外头部媒体 + 国内媒体（直接RSS或自建爬虫，不依赖RSSHub）
+ * 接入前均经实测：2026-07-28 全部源拉取+解析验证通过
  */
 
 export const SOURCES = [
-  // === 海外源 ===
+  // === 海外官方源（第一手权威） ===
+  {
+    name: 'OpenAI Blog',
+    url: 'https://openai.com/blog/rss.xml',
+    category: 'company',
+    language: 'en',
+    source_type: 'official',
+    official: true, // 低频官方源：无日期或日期解析失败的条目放行
+  },
+  {
+    name: 'Google DeepMind',
+    // 主地址 deepmind.google/blog/rss.xml 对非浏览器拒连，basic feed + Feedly UA 实测可用
+    url: 'https://deepmind.google/blog/feed/basic/',
+    userAgent: 'Feedly/1.0',
+    category: 'technology',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+  },
+  {
+    name: 'Google AI',
+    url: 'https://blog.google/technology/ai/rss/',
+    category: 'company',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+  },
+  {
+    name: 'Microsoft AI',
+    // blogs.microsoft.com/ai/feed 已410下线，改用 Microsoft Source AI 专题feed（需Feedly UA）
+    url: 'https://news.microsoft.com/source/topics/ai/feed/',
+    userAgent: 'Feedly/1.0',
+    category: 'company',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+  },
+  {
+    name: 'NVIDIA Blog',
+    url: 'https://blogs.nvidia.com/feed/',
+    category: 'infra',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+  },
+  {
+    name: 'Anthropic',
+    // 无RSS（/news/rss.xml 404），新闻列表页为SSR，直接爬取
+    type: 'scraper',
+    scraper: 'anthropic',
+    url: 'https://www.anthropic.com/news', // 列表页URL（爬虫内部使用，此处仅作记录）
+    category: 'company',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+  },
+
+  // === 海外媒体源 ===
   {
     name: 'Hacker News AI',
     url: 'https://hnrss.org/newest?q=AI+OR+LLM+OR+GPT&points=100',
@@ -18,14 +76,6 @@ export const SOURCES = [
     category: 'technology',
     language: 'en',
     source_type: 'media',
-  },
-  {
-    name: 'OpenAI Blog',
-    url: 'https://openai.com/blog/rss.xml',
-    category: 'company',
-    language: 'en',
-    source_type: 'official',
-    official: true, // 低频官方源：无日期或日期解析失败的条目放行
   },
   {
     name: 'The Decoder',
@@ -43,8 +93,49 @@ export const SOURCES = [
     language: 'en',
     source_type: 'media',
   },
+  {
+    name: 'The Verge AI',
+    url: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml',
+    category: 'company',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'Ars Technica AI',
+    url: 'https://arstechnica.com/ai/feed/',
+    category: 'technology',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'VentureBeat',
+    // AI分类feed(/category/ai/feed)已停更，主站feed内容基本全是AI
+    url: 'https://venturebeat.com/feed/',
+    category: 'company',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'MIT Tech Review',
+    // 全站feed含非AI内容，靠AI筛选闸门过滤
+    url: 'https://www.technologyreview.com/feed/',
+    category: 'technology',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'SemiAnalysis',
+    // 算力/芯片/数据中心深度分析第一权威，补infra维度海外信源短板；
+    // 周更低频长文，2026-07-31 实测拉取+解析验证通过（10条带日期）
+    url: 'https://semianalysis.com/feed/',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    category: 'infra',
+    language: 'en',
+    source_type: 'media',
+    alertDays: 7, // 周更节奏，按官方源频率告警
+  },
 
-  // === 国内源（直接RSS，不依赖RSSHub） ===
+  // === 国内源（直接RSS或自建爬虫，不依赖RSSHub） ===
   {
     name: '机器之心',
     // RSS源(https://www.jiqizhixin.com/rss)已下线(302跳转)，列表页为React SPA，
@@ -66,9 +157,78 @@ export const SOURCES = [
     language: 'zh',
     source_type: 'media',
   },
+  {
+    name: '雷峰网',
+    // 大厂动态覆盖全，补国内头部公司信源短板；量大(20条/72h)，靠AI筛选闸门过滤
+    url: 'https://www.leiphone.com/feed',
+    category: 'company',
+    language: 'zh',
+    source_type: 'media',
+  },
+  {
+    name: '智东西',
+    // RSS(zhidx.com/feed)已坏(HTTP 500)，列表页SSR但无日期，两级爬取（列表+详情页取日期）
+    type: 'scraper',
+    scraper: 'zhidx',
+    url: 'https://zhidx.com/p/category/人工智能', // 列表页URL（爬虫内部使用，此处仅作记录）
+    category: 'company',
+    language: 'zh',
+    source_type: 'media',
+  },
+  {
+    name: '芯东西',
+    // 智东西子刊，芯片/算力专业内容，补infra维度国内信源
+    type: 'scraper',
+    scraper: 'xindongxi',
+    url: 'https://zhidx.com/aichip001', // 列表页URL（爬虫内部使用，此处仅作记录）
+    category: 'infra',
+    language: 'zh',
+    source_type: 'media',
+  },
+  {
+    name: '新智元',
+    // 头部AI媒体，突发快讯+大佬推特/访谈转述覆盖强（补X信源盲区，如黄仁勋推文类新闻）；
+    // 官网RSS已坏(HTTP 500)，改HTML爬虫，2026-07-31 实测列表页+翻页验证通过（20条带ISO日期）
+    type: 'scraper',
+    scraper: 'xinzhiyuan',
+    url: 'https://aiera.com.cn/', // 列表页URL（爬虫内部使用，此处仅作记录）
+    category: 'company',
+    language: 'zh',
+    source_type: 'media',
+  },
+
+  // === 政策源（policy维度专职信源，2026-07-29 实测拉取+解析验证通过） ===
+  {
+    name: 'The Hill Tech',
+    // 美国国会/立法/监管动态，非AI内容靠AI筛选闸门过滤
+    url: 'https://thehill.com/policy/technology/feed/',
+    category: 'policy',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'Politico Tech',
+    // 美国科技政策专业报道，AI监管浓度高；实测需浏览器UA
+    url: 'https://rss.politico.com/technology.xml',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    category: 'policy',
+    language: 'en',
+    source_type: 'media',
+  },
+  {
+    name: 'EU Digital Strategy',
+    // 欧盟委员会数字战略官网官方feed（AI Act执法/罚单/指南一手信息）；
+    // /en/news-redirect/rss.xml 返回500，/en/rss.xml 实测可用（需浏览器UA）
+    url: 'https://digital-strategy.ec.europa.eu/en/rss.xml',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    category: 'policy',
+    language: 'en',
+    source_type: 'official',
+    official: true, // 官方低频源：无日期条目放行
+  },
 ];
 
-// 6个分类定义
+// 7个分类定义
 export const CATEGORIES = [
   { key: 'company', label: '公司动态' },
   { key: 'technology', label: '技术突破' },
@@ -76,4 +236,14 @@ export const CATEGORIES = [
   { key: 'funding', label: '融资' },
   { key: 'opinion', label: '观点' },
   { key: 'policy', label: '政策' },
+  { key: 'infra', label: '算力基建' },
 ];
+
+/**
+ * 信源健康告警阈值（连续0产出天数）：
+ * 官方博客低频发布（OpenAI可能一周不发）放宽到7天，媒体源日更为常态取3天；
+ * 个别源可在配置里用 alertDays 覆盖
+ */
+export function alertThreshold(source) {
+  return source.alertDays || (source.source_type === 'official' ? 7 : 3);
+}

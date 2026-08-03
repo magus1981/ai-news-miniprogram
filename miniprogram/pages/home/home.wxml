@@ -1,88 +1,217 @@
+<wxs src="../../utils/fmt.wxs" module="fmt" />
 <view class="home-page">
-  <!-- 今日必读区域（深色背景） -->
-  <view class="featured-section" wx:if="{{featuredArticles.length > 0}}">
-    <view class="section-header">
-      <text class="section-title">今日必读</text>
-      <text class="section-date">{{date}}</text>
-    </view>
-    <scroll-view scroll-x class="featured-scroll">
-      <view class="featured-list">
-        <featured-card
-          wx:for="{{featuredArticles}}"
-          wx:key="id"
-          article="{{item}}"
-        />
-      </view>
-    </scroll-view>
+  <!-- 极光背景光斑 -->
+  <view class="aurora-bg">
+    <view class="blob blob-1"></view>
+    <view class="blob blob-2"></view>
+    <view class="blob blob-3"></view>
   </view>
 
-  <!-- 分类Tab -->
-  <view class="category-tabs">
-    <scroll-view scroll-x class="tabs-scroll">
-      <view class="tabs-inner">
-        <view
-          wx:for="{{categories}}"
-          wx:key="key"
-          class="tab-item {{activeCategory === item.key ? 'tab-active' : ''}}"
-          data-key="{{item.key}}"
-          bindtap="onCategoryChange"
-        >
-          {{item.label}}
+  <!-- 简报头（日期行可点：左右箭头切换前后一期，点日期打开往期面板） -->
+  <view class="brief-header">
+    <view class="brief-date-row">
+      <view class="date-arrow {{hasPrev ? '' : 'date-arrow-hidden'}}" bindtap="onPrevDay">‹</view>
+      <view class="brief-date brief-date-tappable" bindtap="onDateLabelTap">{{dateLabel}} ▾</view>
+      <view class="date-arrow {{isToday ? 'date-arrow-hidden' : ''}}" bindtap="onNextDay">›</view>
+    </view>
+    <view class="brief-title">{{isToday ? '今日必读' : '往期日报'}}</view>
+    <view class="brief-sub" wx:if="{{featuredArticles.length > 0}}">AI 精选 {{featuredArticles.length + restArticles.length}} 条 · 按重要度排序</view>
+  </view>
+
+  <!-- 加载中骨架 -->
+  <view wx:if="{{loading}}" class="skeleton-group">
+    <view class="glass skeleton skeleton-hero"></view>
+    <view class="glass skeleton skeleton-row"></view>
+    <view class="glass skeleton skeleton-row"></view>
+  </view>
+
+  <!-- 错误提示 -->
+  <view wx:elif="{{error}}" class="empty-state">
+    <text class="empty-icon">⚠️</text>
+    <text class="empty-text">{{error}}</text>
+  </view>
+
+  <block wx:else>
+    <!-- 今日导语：主编开场白（无导语时不占位） -->
+    <view wx:if="{{intro}}" class="glass intro-card">
+      <view class="intro-label">主编导语</view>
+      <view class="intro-text">{{intro}}</view>
+    </view>
+
+    <!-- 头条：第1条精选，大卡带摘要钩子 -->
+    <view
+      wx:if="{{heroArticle}}"
+      class="glass hero-card"
+      data-id="{{heroArticle.id}}"
+      bindtap="onArticleTap"
+    >
+      <view class="hero-top">
+        <text class="hero-rank">01</text>
+        <text class="tag tag-{{heroArticle.category}}">{{fmt.categoryLabel(heroArticle.category)}}</text>
+        <text class="score-badge {{fmt.scoreBandClass(heroArticle.ai_score)}}">{{fmt.scoreBand(heroArticle.ai_score)}}</text>
+      </view>
+      <view class="hero-title">{{heroArticle.title}}</view>
+      <view class="hero-summary">{{heroArticle.summary}}</view>
+      <view class="hero-meta">
+        <text class="meta-source">{{heroArticle.source_name}}</text>
+        <text class="meta-time">{{fmt.relativeTime(heroArticle.published_at)}}</text>
+      </view>
+    </view>
+
+    <!-- 精选 2-5：中卡 -->
+    <view
+      wx:for="{{subFeatured}}"
+      wx:key="id"
+      class="glass mid-card"
+      data-id="{{item.id}}"
+      bindtap="onArticleTap"
+    >
+      <text class="mid-rank">{{item.rankStr}}</text>
+      <view class="mid-body">
+        <view class="mid-title">{{item.title}}</view>
+        <view class="mid-meta">
+          <text class="tag tag-{{item.category}}">{{fmt.categoryLabel(item.category)}}</text>
+          <text class="meta-source">{{item.source_name}}</text>
         </view>
       </view>
-    </scroll-view>
-  </view>
+      <text class="score-badge {{fmt.scoreBandClass(item.ai_score)}}">{{fmt.scoreBand(item.ai_score)}}</text>
+    </view>
 
-  <!-- 热门子标签横滑条（仅公司/观点分类显示） -->
-  <view class="hot-tags-row" wx:if="{{hotTags.length > 0}}">
-    <scroll-view scroll-x class="hot-tags-scroll" enhanced show-scrollbar="{{false}}">
-      <view class="hot-tags-inner">
-        <text
-          wx:for="{{hotTags}}"
-          wx:key="name"
-          class="hot-tag-chip"
-          data-tag="{{item.name}}"
-          data-type="{{item.type}}"
-          bindtap="onHotTagTap"
-        >#{{item.name}}</text>
+    <!-- 今日其余资讯 -->
+    <view class="rest-section" wx:if="{{restArticles.length > 0}}">
+      <view class="rest-header">
+        <text class="rest-title">{{isToday ? '今日更多' : '当日更多'}}</text>
+        <text class="rest-count">{{filteredRest.length}} 条</text>
       </view>
-    </scroll-view>
-  </view>
 
-  <!-- 文章列表 -->
-  <view class="article-list">
-    <!-- 加载中 -->
-    <view wx:if="{{loading}}" class="loading">
-      <text>加载中...</text>
+      <!-- 吸顶轻筛选条 -->
+      <view class="filter-bar">
+        <scroll-view scroll-x class="filter-scroll" enhanced show-scrollbar="{{false}}">
+          <view class="filter-inner">
+            <view
+              wx:for="{{categories}}"
+              wx:key="key"
+              class="filter-chip {{activeCategory === item.key ? 'filter-active' : ''}}"
+              data-key="{{item.key}}"
+              bindtap="onCategoryChange"
+            >{{item.label}}</view>
+          </view>
+        </scroll-view>
+      </view>
+
+      <!-- 热门子标签横滑条（仅公司/观点/政策分类显示，Top10 + 全部展开钮） -->
+      <view class="hot-tags-row" wx:if="{{hotTags.length > 0}}">
+        <scroll-view scroll-x class="hot-tags-scroll" enhanced show-scrollbar="{{false}}">
+          <view class="hot-tags-inner">
+            <text
+              wx:for="{{hotTags}}"
+              wx:key="name"
+              class="hot-tag-chip"
+              data-tag="{{item.name}}"
+              data-type="{{item.type}}"
+              bindtap="onHotTagTap"
+            >{{item.name}}</text>
+            <text
+              wx:if="{{allTags.length > hotTags.length || tagsExpanded}}"
+              class="hot-tag-chip hot-tag-more"
+              bindtap="onToggleTagsPanel"
+            >{{tagsExpanded ? '收起 ▴' : '全部 ▾'}}</text>
+          </view>
+        </scroll-view>
+        <!-- 全部标签面板（展开后显示完整名单+文章数） -->
+        <view class="all-tags-panel" wx:if="{{tagsExpanded}}">
+          <view
+            wx:for="{{allTags}}"
+            wx:key="name"
+            class="all-tag-item"
+            data-tag="{{item.name}}"
+            data-type="{{item.type}}"
+            bindtap="onHotTagTap"
+          >
+            <text class="all-tag-name">{{item.name}}</text>
+            <text class="all-tag-count">{{item.count}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 列表 -->
+      <view class="article-list">
+        <view wx:if="{{filteredRest.length === 0}}" class="empty-state">
+          <text class="empty-icon">📭</text>
+          <text class="empty-text">该分类{{isToday ? '今日' : '当日'}}暂无更多资讯</text>
+        </view>
+        <block wx:else>
+          <article-item wx:for="{{filteredRest}}" wx:key="id" article="{{item}}" />
+          <view class="loading"><text>— {{isToday ? '今日' : '当日'}} {{featuredArticles.length + restArticles.length}} 条已读完 —</text></view>
+        </block>
+      </view>
     </view>
 
-    <!-- 错误提示 -->
-    <view wx:elif="{{error}}" class="empty-state">
-      <text class="empty-icon">⚠️</text>
-      <text class="empty-text">{{error}}</text>
-    </view>
-
-    <!-- 空状态 -->
-    <view wx:elif="{{articles.length === 0}}" class="empty-state">
+    <!-- 全空状态 -->
+    <view wx:if="{{!heroArticle && restArticles.length === 0}}" class="empty-state">
       <text class="empty-icon">📭</text>
-      <text class="empty-text">今日暂无{{activeCategory === 'all' ? '' : '该分类'}}资讯</text>
+      <text class="empty-text">{{isToday ? '今日资讯还未生成，稍后再来' : '当日暂无资讯'}}</text>
     </view>
 
-    <!-- 文章列表 -->
-    <block wx:else>
-      <article-item
-        wx:for="{{articles}}"
-        wx:key="id"
-        article="{{item}}"
-      />
+    <!-- 补读区：上次离开后才入库、发布日已翻页的漏读文章（仅今日视图，见 home.js loadCatchup）。
+         放在今日列表之后，是为了先讲完"今天"再补"昨天"，不打断日报的主线。
+         只在"全部"下出现：它是跨分类的，而上方筛选条一旦选了具体分类，
+         底下再铺一堆别的分类就自相矛盾了（该分类的跟进交给下面的往期重要区）-->
+    <view class="catchup-section" wx:if="{{catchupGroups.length > 0 && activeCategory === 'all'}}">
+      <view class="rest-header">
+        <text class="rest-title">你还没看的</text>
+        <text class="rest-count">{{catchupShown}} 条</text>
+      </view>
+      <view class="section-hint">每天分早、午、晚三批更新，这些是你上次离开后新增的</view>
+      <block wx:for="{{catchupGroups}}" wx:key="date" wx:for-item="group">
+        <view class="catchup-day">{{group.label}} · {{group.articles.length}} 条</view>
+        <article-item wx:for="{{group.articles}}" wx:for-item="item" wx:key="id" article="{{item}}" />
+      </block>
+      <!-- 配额外的尾巴不默默吞掉：告诉他还剩多少、以及从哪里拿 -->
+      <view class="section-more" wx:if="{{catchupTotal > catchupShown}}">
+        还有 {{catchupTotal - catchupShown}} 条未读，可点页面顶部日期进往期日报查看
+      </view>
+    </view>
 
-      <!-- 加载更多 -->
-      <view wx:if="{{loadingMore}}" class="loading">
-        <text>加载更多...</text>
+    <!-- 往期重要：比当前日期更早、按重要度而不是时间排序（见 home.js loadArchive）。
+         解决的是子分类日产量结构性偏低导致的"点进去一片空白"，所以它随上方分类联动，
+         且在当日列表为空时照样出现——那正是最需要它的时候 -->
+    <view class="archive-section" wx:if="{{archiveArticles.length > 0}}">
+      <view class="rest-header">
+        <text class="rest-title">往期重要</text>
+        <text class="rest-count">{{archiveArticles.length}} 条</text>
       </view>
-      <view wx:elif="{{!hasMore && articles.length > 0}}" class="loading">
-        <text>— 已经到底了 —</text>
+      <view class="section-hint">按重要度排序，来自最近 30 天，不含{{isToday ? '今日' : '当日'}}</view>
+      <article-item wx:for="{{archiveArticles}}" wx:key="id" article="{{item}}" />
+      <!-- 先给展开钮（手里还有拉好的），展完了才提示按天回看——两个出口不同时出现，免得用户纠结点哪个 -->
+      <view class="section-more section-more-tap" wx:if="{{archiveMore > 0}}" bindtap="onArchiveExpand">
+        再看 {{archiveMore}} 条
       </view>
-    </block>
+      <view class="section-more" wx:elif="{{archiveTotal > archiveArticles.length}}">
+        该范围内共 {{archiveTotal}} 条，可点页面顶部日期按天回看
+      </view>
+    </view>
+  </block>
+
+  <!-- 往期日报半屏面板 -->
+  <view wx:if="{{datePanelVisible}}" class="date-panel-mask" bindtap="onCloseDatePanel">
+    <view class="glass date-panel" catchtap="noop">
+      <view class="date-panel-header">
+        <text class="date-panel-title">往期日报</text>
+        <text class="date-panel-close" bindtap="onCloseDatePanel">✕</text>
+      </view>
+      <scroll-view scroll-y class="date-panel-list">
+        <view
+          wx:for="{{dateList}}"
+          wx:key="date"
+          class="date-item {{item.date === date ? 'date-item-active' : ''}}"
+          data-date="{{item.date}}"
+          bindtap="onDateSelect"
+        >
+          <text class="date-item-label">{{item.label}}</text>
+          <text class="date-item-meta">{{item.total > 0 ? item.total + ' 篇 · 精选 ' + item.featured : '暂无内容'}}</text>
+        </view>
+      </scroll-view>
+    </view>
   </view>
 </view>

@@ -38,6 +38,25 @@
     <text class="empty-text">暂无收藏，去首页看看吧</text>
   </view>
 
+  <!-- 信源健康（接口失败时不展示） -->
+  <view wx:if="{{health}}" class="health-section">
+    <view class="health-header" bindtap="onToggleHealth">
+      <text class="health-title">信源健康</text>
+      <view class="health-summary">
+        <text wx:if="{{health.alertCount > 0}}" class="health-badge alert">{{health.alertCount}} 个告警</text>
+        <text wx:else class="health-badge ok">{{health.sources.length}} 个信源正常</text>
+        <text class="health-arrow">{{healthExpanded ? '▲' : '▼'}}</text>
+      </view>
+    </view>
+    <view wx:if="{{healthExpanded}}" class="health-list">
+      <view wx:for="{{health.sources}}" wx:key="name" class="health-item">
+        <view class="health-dot {{item.status}}"></view>
+        <text class="health-name">{{item.name}}</text>
+        <text class="health-status {{item.status}}">{{item.statusText}}</text>
+      </view>
+    </view>
+  </view>
+
   <!-- 关于 -->
   <view class="about-section">
     <view class="about-title">关于</view>

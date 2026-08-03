@@ -24,7 +24,7 @@ module.exports = async (req, res) => {
     const dateKey = date === 'all' ? null : (date || new Date().toISOString().split('T')[0]);
 
     // 动态拼接WHERE条件
-    const where = [];
+    const where = [`category != 'noise'`]; // 噪音文章不在任何列表展示
     const args = [];
     if (dateKey) { where.push('date_key = ?'); args.push(dateKey); }
     if (category && category !== 'all') { where.push('category = ?'); args.push(category); }
@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
     const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const result = await db.execute({
-      sql: `SELECT id, title, source_name, source_url, category, ai_score, is_featured, published_at, tags
+      sql: `SELECT id, title, source_name, source_url, category, ai_score, is_featured, is_breaking, published_at, tags
             FROM articles ${whereSQL}
             ORDER BY date_key DESC, ai_score DESC
             LIMIT ? OFFSET ?`,
@@ -53,6 +53,7 @@ module.exports = async (req, res) => {
       category: row.category,
       ai_score: row.ai_score,
       is_featured: !!row.is_featured,
+      is_breaking: !!row.is_breaking,
       published_at: row.published_at,
       tags: parseTags(row.tags),
     }));

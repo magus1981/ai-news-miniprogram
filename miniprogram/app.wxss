@@ -1,12 +1,14 @@
-/* 全局样式 */
+/* 全局样式 —— 极光玻璃（Aurora Glass）主题 */
 page {
-  --color-primary: #1a1a2e;
-  --color-accent: #4a6cf7;
-  --color-bg: #f5f6fa;
-  --color-card: #ffffff;
-  --color-text: #2d3748;
-  --color-text-secondary: #718096;
-  --color-border: #e2e8f0;
+  --color-primary: #312e81;
+  --color-accent: #6366f1;
+  --color-accent-2: #8b5cf6;
+  --color-bg: #f4f5fb;
+  --color-card: rgba(255, 255, 255, 0.78);
+  --color-text: #1f2437;
+  --color-text-secondary: #6b7280;
+  --color-border: rgba(255, 255, 255, 0.9);
+  --gradient-accent: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #d946ef 100%);
 
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 28rpx;
@@ -20,31 +22,81 @@ page {
   padding: 24rpx;
 }
 
-/* 卡片基础样式 */
-.card {
+/* 磨砂玻璃卡片 */
+.card,
+.glass {
   background: var(--color-card);
-  border-radius: 16rpx;
+  border: 1rpx solid var(--color-border);
+  border-radius: 24rpx;
   padding: 24rpx;
   margin-bottom: 20rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
+  box-shadow: 0 8rpx 32rpx rgba(99, 102, 241, 0.08);
+  backdrop-filter: blur(24rpx);
+  -webkit-backdrop-filter: blur(24rpx);
+}
+
+/* 重要性档位徽章（文字档位，不再显示裸分）：档位越高越醒目，口径见 utils/fmt.wxs 的 scoreBand */
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rpx 12rpx;
+  border-radius: 12rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  background: #eef2ff;
+  color: #6366f1;
+}
+
+/* 90+ 重磅：一天 0-1 条，多数天为 0 条，所以它出现时应当很抢眼 */
+.score-badge.score-s {
+  background: var(--gradient-accent);
+  color: #ffffff;
+  box-shadow: 0 4rpx 12rpx rgba(139, 92, 246, 0.35);
+}
+
+/* 重要：实心紫chip，白字。因“值得看/可看”改成实心药丸，这里同步提成实心紫以免梯度倒挂 */
+.score-badge.score-a {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+/* 值得看：实心蓝chip，白字——与灰色来源/时间正文彻底拉开，不再靠淡底描边 */
+.score-badge.score-b {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+/* 可看：实心灰蓝chip，白字——比“值得看”的蓝更灰更弱表示档位更低，
+   但仍是实心药丸，不会被误读成来源/时间那类灰字正文（2026-07-31 用户再次反馈仍混淆） */
+.score-badge.score-c {
+  background: #64748b;
+  color: #ffffff;
+}
+
+/* 边缘档：软文与客户案例。宁可让它看起来就像不重要 */
+.score-badge.score-d {
+  background: #f8fafc;
+  color: #94a3b8;
 }
 
 /* 分类标签 */
 .tag {
   display: inline-block;
   font-size: 22rpx;
-  padding: 4rpx 12rpx;
-  border-radius: 6rpx;
-  background: #edf2f7;
+  padding: 4rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eef2f7;
   color: var(--color-text-secondary);
 }
 
-.tag-company { background: #ebf8ff; color: #2b6cb0; }
-.tag-technology { background: #f0fff4; color: #276749; }
-.tag-opensource { background: #faf5ff; color: #6b46c1; }
-.tag-funding { background: #fffaf0; color: #c05621; }
-.tag-opinion { background: #fff5f5; color: #c53030; }
-.tag-policy { background: #f7fafc; color: #4a5568; }
+.tag-company { background: #eef2ff; color: #4f46e5; }
+.tag-technology { background: #ecfeff; color: #0891b2; }
+.tag-opensource { background: #f5f3ff; color: #7c3aed; }
+.tag-funding { background: #fffbeb; color: #d97706; }
+.tag-opinion { background: #fff1f2; color: #e11d48; }
+.tag-policy { background: #f8fafc; color: #475569; }
+.tag-infra { background: #f0fdf4; color: #16a34a; }
 
 /* 空状态 */
 .empty-state {
