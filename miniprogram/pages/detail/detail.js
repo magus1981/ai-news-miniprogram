@@ -79,7 +79,7 @@ Page({
   onShareAppMessage() {
     const { article } = this.data;
     return {
-      title: article ? article.title : 'AI前沿资讯',
+      title: article ? article.title : '未竟智能',
       path: `/pages/detail/detail?id=${this.articleId}`,
     };
   },
