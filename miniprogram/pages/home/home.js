@@ -14,6 +14,14 @@ const CATEGORIES = [
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
+// 重要性档位（与 fmt.wxs scoreBand / pipeline SCORE_BANDS 口径一致）。
+// 筛选语义是多选并集：选「重磅+值得看」就只看这两个档，不选=全部。
+const SCORE_BANDS = [
+  { min: 90, label: '重磅' },
+  { min: 80, label: '重要' },
+  { min: 70, label: '值得看' },
+];
+
 // 往期重要区的首屏展示条数。不能多：它是补充阅读，一旦比当日日报还长，「今日」就不再是主角了。
 // 想多看的人点「再看 N 条」展开，上限是本次已拉取的 ARCHIVE_SHOW*3 条——
 // 主动要看和被动刷到是两回事，展开是用户自己的选择，不破坏「今日为主」的默认版面。
@@ -71,6 +79,8 @@ Page({
     archiveArticles: [],   // 往期重要：比当前日期更早、按重要度排序，随分类联动
     archiveTotal: 0,       // 30天窗口内该分类的往期总数（用于告知还有多少）
     archiveMore: 0,        // 「再看 N 条」的 N：本次已拉取但未展示的条数，0 则不显展开钮
+    scoreBandChips: SCORE_BANDS.map(b => (Object.assign({ selected: false }, b))),
+    activeBands: [],       // 选中的档位下限列表（空=不筛选）
   },
 
   onLoad() {
@@ -126,10 +136,9 @@ Page({
         .sort((a, b) => (b.ai_score || 0) - (a.ai_score || 0));
 
       const heroArticle = featured[0] || null;
-      const subFeatured = featured.slice(1).map((a, i) => ({
-        ...a,
+      const subFeatured = featured.slice(1).map((a, i) => (Object.assign({
         rankStr: String(i + 2).padStart(2, '0'),
-      }));
+      }, a)));
 
       this.setData({
         featuredArticles: featured,
@@ -221,32 +230,79 @@ Page({
       }
       const full = (res.articles || []).filter(a => !shown.has(a.id));
       this._archiveFull = full;
-
-      this.setData({
-        archiveArticles: full.slice(0, ARCHIVE_SHOW),
-        archiveTotal: res.total || 0,
-        archiveMore: Math.max(0, full.length - ARCHIVE_SHOW),
-      });
+      this._archiveServerTotal = res.total || 0;
+      this.renderArchive();
     } catch (err) {
       console.error('往期重要加载失败:', err);
     }
+  },
+
+  // 往期区渲染：档位筛选只作用于已拉取到的候选（不重新请求），
+  // 未筛选时总数仍用服务端口径，筛选后用筛后长度避免误导
+  renderArchive() {
+    if (!this._archiveFull) return;
+    const full = this.applyBands(this._archiveFull);
+    const bandsActive = this.data.activeBands.length > 0;
+    this.setData({
+      archiveArticles: full.slice(0, ARCHIVE_SHOW),
+      archiveTotal: bandsActive ? full.length : (this._archiveServerTotal || 0),
+      archiveMore: Math.max(0, full.length - ARCHIVE_SHOW),
+    });
   },
 
   // 往期重要「再看 N 条」：一次性展开本次已拉取的全部（不再请求，列表就在手里）。
   // 切分类/切日期后 loadArchive 会重置回 8 条：展开是对当前视图的一次性选择，不是全局开关。
   onArchiveExpand() {
     if (!this._archiveFull || !this._archiveFull.length) return;
-    this.setData({ archiveArticles: this._archiveFull, archiveMore: 0 });
+    this.setData({ archiveArticles: this.applyBands(this._archiveFull), archiveMore: 0 });
   },
 
   // 分类筛选：选具体分类时把精选文章也纳入列表——
   // 头条/精选区不随分类变化，若不纳入，属于该分类的头条文章会在分类列表里"消失"
-  filterByCategory(list, category, featured) {
-    if (category === 'all') return list;
+  // bands 参数必传当前生效的档位：setData 的参数是先求值后生效，
+  // 若在求值时读 this.data.activeBands 会拿到点击前的旧值，筛选永远慢一拍
+  filterByCategory(list, category, featured, bands) {
+    if (category === 'all') return this.applyBands(list, bands);
     const all = (featured || this.data.featuredArticles || []).concat(list);
-    return all
+    return this.applyBands(all
       .filter(a => a.category === category)
-      .sort((a, b) => (b.ai_score || 0) - (a.ai_score || 0));
+      .sort((a, b) => (b.ai_score || 0) - (a.ai_score || 0)), bands);
+  },
+
+  // 档位筛选：严格档位区间（重磅=90+、重要=80-89、值得看=70-79），多选并集；
+  // 未传 bands 时默认读当前状态，传了则用传入值（避免 setData 求值时序问题）
+  applyBands(list, bands) {
+    const active = bands || this.data.activeBands;
+    if (!active.length) return list;
+    return list.filter(a => {
+      const s = a.ai_score || 0;
+      return active.some(min => s >= min && (min >= 90 || s < min + 10));
+    });
+  },
+
+  // 档位chip点击（多选切换）：重算当日列表与往期区
+  onBandToggle(e) {
+    const min = Number(e.currentTarget.dataset.min);
+    const bands = this.data.activeBands.slice();
+    const idx = bands.indexOf(min);
+    if (idx >= 0) bands.splice(idx, 1); else bands.push(min);
+    this.setData({
+      activeBands: bands,
+      scoreBandChips: SCORE_BANDS.map(b => (Object.assign({ selected: bands.indexOf(b.min) >= 0 }, b))),
+      filteredRest: this.filterByCategory(this.data.restArticles, this.data.activeCategory, undefined, bands),
+    });
+    this.renderArchive();
+  },
+
+  // 清空档位筛选
+  onClearBands() {
+    if (!this.data.activeBands.length) return;
+    this.setData({
+      activeBands: [],
+      scoreBandChips: SCORE_BANDS.map(b => (Object.assign({ selected: false }, b))),
+      filteredRest: this.filterByCategory(this.data.restArticles, this.data.activeCategory, undefined, []),
+    });
+    this.renderArchive();
   },
 
   // 分类筛选（当日列表客户端过滤，往期区需重新请求）
@@ -331,13 +387,12 @@ Page({
   async loadDateIndex() {
     try {
       const res = await getDates();
-      let list = (res.dates || []).map(d => ({
-        ...d,
+      let list = (res.dates || []).map(d => (Object.assign({
         label: formatDateLabel(d.date),
-      }));
+      }, d)));
       const today = todayStr();
       if (!list.some(d => d.date === today)) {
-        list = [{ date: today, total: 0, featured: 0, label: formatDateLabel(today) }, ...list];
+        list = [{ date: today, total: 0, featured: 0, label: formatDateLabel(today) }].concat(list);
       }
       this.setData({ dateList: list, hasPrev: this.calcHasPrev(this.data.date) });
     } catch (err) {
@@ -384,7 +439,7 @@ Page({
       target = dateList[idx + (dir === -1 ? 1 : -1)];
     } else {
       // 当前日期不在索引里（罕见），找最近的一天
-      target = dir === -1 ? dateList.find(d => d.date < date) : [...dateList].reverse().find(d => d.date > date);
+      target = dir === -1 ? dateList.find(d => d.date < date) : dateList.slice().reverse().find(d => d.date > date);
     }
     if (target) this.switchToDate(target.date);
   },
@@ -394,6 +449,46 @@ Page({
     this.setDate(dateStr);
     this.loadData();
     this.loadCatchup().then(() => this.loadArchive()); // 切回今天要把补读区带回，切去往期则负责清空
+  },
+
+  // ===== 左右滑动翻页：左滑看昨天，右滑回今天 =====
+  // 与箭头/日期面板共用 stepDate，同样跨越空档日、同样受“今天封顶”约束。
+  // 阈值取横向位移大于纵向 1.5 倍，避免上下滚动列表时误触发翻页。
+  // 横滑区（分类条/标签条/标签面板）起手的手势由 onZoneTouchStart 打标记豁免，
+  // 不用 catch 拦截——catch 会把 scroll-view 自身的滚动和点击一并弄死。
+  onZoneTouchStart() {
+    this._noSwipe = true;
+  },
+
+  onTouchStart(e) {
+    const t = e.touches[0];
+    this._touchStart = { x: t.clientX, y: t.clientY };
+  },
+
+  onTouchEnd(e) {
+    if (!this._touchStart) return;
+    if (this._noSwipe) {
+      this._noSwipe = false;
+      this._touchStart = null;
+      return;
+    }
+    if (this.data.datePanelVisible) return; // 往期面板打开时不抢手势
+    const t = e.changedTouches[0];
+    const dx = t.clientX - this._touchStart.x;
+    const dy = t.clientY - this._touchStart.y;
+    this._touchStart = null;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) {
+      // 左滑→更早一期
+      this.stepDate(-1);
+    } else {
+      // 右滑→更晚一期；已是今天则提示封顶
+      if (this.data.isToday) {
+        wx.showToast({ title: '已经是最新一期', icon: 'none' });
+        return;
+      }
+      this.stepDate(1);
+    }
   },
 
   // 热门子标签点击，跳标签归类页
@@ -407,7 +502,7 @@ Page({
 
   onShareAppMessage() {
     return {
-      title: 'AI前沿资讯 - 今日精选',
+      title: '未竟智能 - 今日精选',
       path: '/pages/home/home',
     };
   },
