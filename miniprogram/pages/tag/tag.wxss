@@ -7,6 +7,14 @@
 .tag-header {
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   padding: 40rpx 32rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tag-head-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .tag-name {
@@ -21,9 +29,32 @@
   color: rgba(255, 255, 255, 0.6);
 }
 
+/* 关注按钮 */
+.tag-follow-btn {
+  flex-shrink: 0;
+  padding: 12rpx 28rpx;
+  border-radius: 999rpx;
+  font-size: 26rpx;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.35);
+}
+
+.tag-follow-btn.tag-followed {
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: none;
+  border: 1rpx solid rgba(255, 255, 255, 0.35);
+}
+
 /* 文章列表 */
 .article-list {
   padding: 24rpx;
+}
+
+/* 档位筛选条与深色页头的间距 */
+.tag-band-bar {
+  padding-top: 20rpx;
 }
 
 .loading {
