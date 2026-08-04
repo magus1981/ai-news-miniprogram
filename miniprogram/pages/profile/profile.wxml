@@ -1,42 +1,102 @@
 <wxs src="../../utils/fmt.wxs" module="fmt" />
 <view class="profile-page">
-  <!-- 页面标题 -->
-  <view class="profile-header">
-    <text class="profile-title">我的收藏</text>
-    <text class="profile-count">{{favorites.length}} 篇</text>
+  <!-- 页头：关注 / 收藏 双tab -->
+  <view class="profile-tabs">
+    <view
+      class="profile-tab {{activeTab === 'follow' ? 'profile-tab-active' : ''}}"
+      data-tab="follow"
+      bindtap="onTabChange"
+    >我的关注 {{followedTags.length ? '(' + followedTags.length + ')' : ''}}</view>
+    <view
+      class="profile-tab {{activeTab === 'favorite' ? 'profile-tab-active' : ''}}"
+      data-tab="favorite"
+      bindtap="onTabChange"
+    >我的收藏 {{favorites.length ? '(' + favorites.length + ')' : ''}}</view>
   </view>
 
-  <!-- 收藏列表 -->
-  <view wx:if="{{favorites.length > 0}}" class="favorite-list">
-    <view
-      wx:for="{{favorites}}"
-      wx:key="id"
-      class="favorite-item"
-      data-id="{{item.id}}"
-      bindtap="onTapArticle"
-    >
-      <view class="favorite-content">
-        <view class="favorite-title">{{item.title}}</view>
-        <view class="favorite-meta">
-          <text class="favorite-source">{{item.source_name}}</text>
-          <text class="favorite-tag tag tag-{{item.category}}">{{fmt.categoryLabel(item.category)}}</text>
+  <!-- ===== 我的关注 ===== -->
+  <block wx:if="{{activeTab === 'follow'}}">
+    <!-- 未关注任何标签 -->
+    <view wx:if="{{followedTags.length === 0}}" class="empty-state">
+      <text class="empty-icon">👀</text>
+      <text class="empty-text">还没关注任何标签</text>
+      <text class="empty-hint">在首页选「公司/观点/政策」分类，点进标签页即可关注</text>
+    </view>
+
+    <block wx:else>
+      <!-- 关注的标签chips -->
+      <view class="follow-chips">
+        <view
+          wx:for="{{followedTags}}"
+          wx:key="tag"
+          class="follow-chip"
+          data-tag="{{item.tag}}"
+          data-type="{{item.type}}"
+          bindtap="onTagChipTap"
+        >
+          <text class="follow-chip-type">{{item.typeLabel}}</text>
+          <text class="follow-chip-name">{{item.tag}}</text>
+          <text class="follow-chip-remove" data-tag="{{item.tag}}" data-type="{{item.type}}" catchtap="onUnfollowTag">✕</text>
         </view>
       </view>
+      <view wx:if="{{followOverflow > 0}}" class="follow-overflow">
+        关注较多，动态仅展示前 {{followedTags.length - followOverflow}} 个标签
+      </view>
+
+      <!-- 关注动态 -->
+      <view class="follow-feed-header">
+        <text class="follow-feed-title">最新动态</text>
+        <text class="follow-feed-count">{{followFeed.length}} 条</text>
+      </view>
+      <view wx:if="{{followLoading}}" class="loading-tip">加载中...</view>
+      <view wx:elif="{{followFeed.length === 0}}" class="empty-state empty-state-small">
+        <text class="empty-icon">📭</text>
+        <text class="empty-text">关注的标签暂无文章</text>
+      </view>
+      <view wx:else class="follow-feed">
+        <article-item
+          wx:for="{{followFeed}}"
+          wx:key="id"
+          article="{{item}}"
+        />
+      </view>
+    </block>
+  </block>
+
+  <!-- ===== 我的收藏 ===== -->
+  <block wx:else>
+    <!-- 收藏列表 -->
+    <view wx:if="{{favorites.length > 0}}" class="favorite-list">
       <view
-        class="favorite-remove"
+        wx:for="{{favorites}}"
+        wx:key="id"
+        class="favorite-item"
         data-id="{{item.id}}"
-        catchtap="onRemoveFavorite"
+        bindtap="onTapArticle"
       >
-        ✕
+        <view class="favorite-content">
+          <view class="favorite-title">{{item.title}}</view>
+          <view class="favorite-meta">
+            <text class="favorite-source">{{item.source_name}}</text>
+            <text class="favorite-tag tag tag-{{item.category}}">{{fmt.categoryLabel(item.category)}}</text>
+          </view>
+        </view>
+        <view
+          class="favorite-remove"
+          data-id="{{item.id}}"
+          catchtap="onRemoveFavorite"
+        >
+          ✕
+        </view>
       </view>
     </view>
-  </view>
 
-  <!-- 空状态 -->
-  <view wx:else class="empty-state">
-    <text class="empty-icon">⭐</text>
-    <text class="empty-text">暂无收藏，去首页看看吧</text>
-  </view>
+    <!-- 空状态 -->
+    <view wx:else class="empty-state">
+      <text class="empty-icon">⭐</text>
+      <text class="empty-text">暂无收藏，去首页看看吧</text>
+    </view>
+  </block>
 
   <!-- 信源健康（接口失败时不展示） -->
   <view wx:if="{{health}}" class="health-section">
@@ -60,7 +120,7 @@
   <!-- 关于 -->
   <view class="about-section">
     <view class="about-title">关于</view>
-    <view class="about-text">AI前沿资讯 v1.0.0</view>
+    <view class="about-text">未竟智能 v1.0.0</view>
     <view class="about-text">每日精选10-20条全球AI重要资讯</view>
     <view class="about-text">由AI自动采集、筛选、总结</view>
   </view>
