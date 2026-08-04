@@ -125,3 +125,39 @@ page {
   color: var(--color-text-secondary);
   font-size: 24rpx;
 }
+
+/* score band filter bar (multi-select) */
+.band-bar {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 12rpx 32rpx 4rpx;
+}
+
+.band-bar-label {
+  font-size: 22rpx;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.band-chip {
+  font-size: 24rpx;
+  color: #6b7280;
+  background: #ffffff;
+  border: 1rpx solid #e5e7eb;
+  border-radius: 999rpx;
+  padding: 6rpx 22rpx;
+}
+
+.band-chip-active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-color: transparent;
+}
+
+.band-bar-clear {
+  font-size: 22rpx;
+  color: #9ca3af;
+  margin-left: 4rpx;
+  padding: 6rpx 8rpx;
+}
