@@ -45,10 +45,14 @@ function getFeatured(date) {
 
 /**
  * 获取文章列表（tag参数可与category/date叠加；date传'all'表示不限日期；
- * tagType限定只在tags的指定字段内精确匹配：companies/people/keywords/regions）
+ * tagType限定只在tags的指定字段内精确匹配：companies/people/keywords/regions；
+ * minScores为重要性下限数组（如[90,80]），命中任一下限即保留，服务端筛选）
  */
-function getArticles({ category, date, page = 1, limit = 20, tag, tagType }) {
-  return get('/api/articles', { category, date, page, limit, tag, tag_type: tagType });
+function getArticles({ category, date, page = 1, limit = 20, tag, tagType, minScores }) {
+  return get('/api/articles', {
+    category, date, page, limit, tag, tag_type: tagType,
+    min_scores: minScores && minScores.length ? minScores.join(',') : undefined,
+  });
 }
 
 /**
