@@ -1,4 +1,6 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "article-item": "/components/article-item/article-item"
+  },
   "navigationBarTitleText": "我的"
 }
