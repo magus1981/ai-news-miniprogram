@@ -80,6 +80,7 @@ const COMPANY_ALIASES = {
   'Databricks': [],
   'Snowflake': [],
   'Scale AI': [],
+  'Palantir': ['Palantir Technologies'],
   'Salesforce': [],
   'Adobe': [],
   'Groq': [],
@@ -100,13 +101,14 @@ const PERSON_ALIASES = {
   '扎克伯格': ['Mark Zuckerberg', 'Zuckerberg'],
   '梁文锋': ['Liang Wenfeng', '梁文峰'],
   'Sam Altman': ['Sam altman', 'Altman'],
+  'Alex Karp': ['Karp', 'Alexander Karp', '卡普', '亚历克斯·卡普'],
   'Demis Hassabis': ['Hassabis'],
   'Dario Amodei': ['Amodei'],
   'Ilya Sutskever': ['Ilya'],
   'Clément Delangue': ['Clement Delangue', 'Clem Delangue', 'Delangue'],
   // 大厂掌门（中文优先）
   '库克': ['Tim Cook'],
-  '纳德拉': ['Satya Nadella', 'Nadella'],
+  '纳德拉': ['Satya Nadella', 'Nadella', '萨提亚·纳德拉'],
   '皮查伊': ['Sundar Pichai', 'Pichai'],
   // 学术界/安全派意见领袖
   '杨立昆': ['Yann LeCun', 'LeCun'],

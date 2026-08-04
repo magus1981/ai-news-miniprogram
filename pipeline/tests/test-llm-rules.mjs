@@ -95,6 +95,18 @@ const CASES = [
     },
   },
   {
+    id: 'T5', desc: '观点文章只填观点持有者，旁证式顺带提及不打标（#592 Karp文章误挂纳德拉真实案例）',
+    article: A({
+      title: 'Palantir CEO Alex Karp称AI行业具有“马克思主义”倾向',
+      content: 'Palantir首席执行官Alex Karp在季度股东信中警告，AI前沿实验室对企业来说不够可靠，其商业模式带有马克思主义意味，意在控制合作伙伴的生产资料。Palantir第二季度营收19亿美元，同比增长93%。文章还提到，微软CEO萨提亚·纳德拉此前也表达过类似观点。',
+      category: 'opinion',
+    }),
+    check: (r) => {
+      const t = tagsOf(r);
+      return t.people.includes('Alex Karp') && !t.people.includes('纳德拉') && t.companies.includes('Palantir');
+    },
+  },
+  {
     id: 'R1', desc: '针对性政策只填主体国（美国禁令不带中国）',
     article: A({
       title: '美国计划对中国AI模型实施选择性禁令',
