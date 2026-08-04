@@ -53,9 +53,42 @@ function isFavorite(id) {
   return favorites.some(f => f.id === id);
 }
 
+// ===== 标签关注（与收藏同源不同道：收藏留文章，关注留"实体"） =====
+// type 沿用标签页口径：company/people/keywords/regions，与 tag 页 TYPE_MAP 直接对接
+const FOLLOW_KEY = 'followed_tags';
+
+function getFollowedTags() {
+  try {
+    return wx.getStorageSync(FOLLOW_KEY) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function addFollowedTag(tag, type) {
+  const list = getFollowedTags();
+  if (list.some(f => f.tag === tag && f.type === type)) return false;
+  list.unshift({ tag, type, followed_at: new Date().toISOString() });
+  wx.setStorageSync(FOLLOW_KEY, list);
+  return true;
+}
+
+function removeFollowedTag(tag, type) {
+  const list = getFollowedTags().filter(f => !(f.tag === tag && f.type === type));
+  wx.setStorageSync(FOLLOW_KEY, list);
+}
+
+function isFollowedTag(tag, type) {
+  return getFollowedTags().some(f => f.tag === tag && f.type === type);
+}
+
 module.exports = {
   getFavorites,
   addFavorite,
   removeFavorite,
   isFavorite,
+  getFollowedTags,
+  addFollowedTag,
+  removeFollowedTag,
+  isFollowedTag,
 };
