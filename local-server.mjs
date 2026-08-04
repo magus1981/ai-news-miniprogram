@@ -306,7 +306,8 @@ function handleRequest(req, res) {
     }
 
     // GET /api/articles（tag参数与category/date/page可叠加；date=all 表示不限日期；
-    // tag_type 限定只在 tags 的指定字段内精确匹配，避免跨字段撞字符串）
+    // tag_type 限定只在 tags 的指定字段内精确匹配，避免跨字段撞字符串；
+    // min_scores 为逗号分隔的下限列表（如 90,80），命中任一下限即保留，支持重要性多选筛选）
     if (pathname === '/api/articles') {
       const date = query.date === 'all' ? null : (query.date || new Date().toISOString().split('T')[0]);
       const category = query.category;
@@ -315,6 +316,10 @@ function handleRequest(req, res) {
       const page = Math.max(1, parseInt(query.page) || 1);
       const limit = Math.min(50, parseInt(query.limit) || 20);
       const offset = (page - 1) * limit;
+      // 重要性筛选：只认 0-100 的数字档位下限，非法值直接忽略；
+      // 每个下限是严格档位区间（如 80 = 80-89），不是“≥80”
+      const minScores = String(query.min_scores || '')
+        .split(',').map(s => parseInt(s, 10)).filter(n => n > 0 && n <= 100);
 
       // 动态拼接WHERE条件
       const where = [`category != 'noise'`]; // 噪音文章不在任何列表展示
@@ -330,6 +335,12 @@ function handleRequest(req, res) {
           // 无tag_type时降级为全JSON模糊匹配（兼容旧版前端）
           where.push('tags LIKE ?'); args.push(tagLikePattern(tag));
         }
+      }
+      if (minScores.length) {
+        // 多选并集：每个档位一个 [min, min+10) 区间；90 档封顶不设上限
+        const conds = minScores.map(() => '(ai_score >= ? AND ai_score < ?)').join(' OR ');
+        where.push(`(${conds})`);
+        for (const m of minScores) { args.push(m, m >= 90 ? 999 : m + 10); }
       }
       const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
