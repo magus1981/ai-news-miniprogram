@@ -1,10 +1,19 @@
 <wxs src="../../utils/fmt.wxs" module="fmt" />
-<view class="home-page">
+<view class="home-page" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
   <!-- 极光背景光斑 -->
   <view class="aurora-bg">
     <view class="blob blob-1"></view>
     <view class="blob blob-2"></view>
     <view class="blob blob-3"></view>
+  </view>
+
+  <!-- 品牌头（logo + 名称 + slogan） -->
+  <view class="brand-header">
+    <image class="brand-logo" src="/images/logo.png" mode="aspectFit" />
+    <view class="brand-text">
+      <text class="brand-name">未竟智能</text>
+      <text class="brand-slogan">每日精选全球AI要闻</text>
+    </view>
   </view>
 
   <!-- 简报头（日期行可点：左右箭头切换前后一期，点日期打开往期面板） -->
@@ -86,7 +95,7 @@
 
       <!-- 吸顶轻筛选条 -->
       <view class="filter-bar">
-        <scroll-view scroll-x class="filter-scroll" enhanced show-scrollbar="{{false}}">
+        <scroll-view scroll-x class="filter-scroll" enhanced show-scrollbar="{{false}}" bindtouchstart="onZoneTouchStart">
           <view class="filter-inner">
             <view
               wx:for="{{categories}}"
@@ -99,9 +108,22 @@
         </scroll-view>
       </view>
 
+      <!-- 重要性档位筛选（多选，不选=全部） -->
+      <view class="band-bar">
+        <text class="band-bar-label">重要性</text>
+        <view
+          wx:for="{{scoreBandChips}}"
+          wx:key="min"
+          class="band-chip {{item.selected ? 'band-chip-active' : ''}}"
+          data-min="{{item.min}}"
+          bindtap="onBandToggle"
+        >{{item.label}}</view>
+        <text wx:if="{{activeBands.length > 0}}" class="band-bar-clear" bindtap="onClearBands">清空</text>
+      </view>
+
       <!-- 热门子标签横滑条（仅公司/观点/政策分类显示，Top10 + 全部展开钮） -->
       <view class="hot-tags-row" wx:if="{{hotTags.length > 0}}">
-        <scroll-view scroll-x class="hot-tags-scroll" enhanced show-scrollbar="{{false}}">
+        <scroll-view scroll-x class="hot-tags-scroll" enhanced show-scrollbar="{{false}}" bindtouchstart="onZoneTouchStart">
           <view class="hot-tags-inner">
             <text
               wx:for="{{hotTags}}"
@@ -119,7 +141,7 @@
           </view>
         </scroll-view>
         <!-- 全部标签面板（展开后显示完整名单+文章数） -->
-        <view class="all-tags-panel" wx:if="{{tagsExpanded}}">
+        <view class="all-tags-panel" wx:if="{{tagsExpanded}}" bindtouchstart="onZoneTouchStart">
           <view
             wx:for="{{allTags}}"
             wx:key="name"
