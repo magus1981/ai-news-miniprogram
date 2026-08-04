@@ -6,7 +6,7 @@
     "pages/profile/profile"
   ],
   "window": {
-    "navigationBarTitleText": "AI前沿资讯",
+    "navigationBarTitleText": "未竟智能",
     "navigationBarBackgroundColor": "#f4f5fb",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#f4f5fb",
@@ -29,5 +29,6 @@
     ]
   },
   "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
   "sitemapLocation": "sitemap.json"
 }
