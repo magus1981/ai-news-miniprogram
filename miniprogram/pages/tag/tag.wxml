@@ -1,8 +1,26 @@
 <view class="tag-page">
   <!-- 标签头部 -->
   <view class="tag-header">
-    <view class="tag-name">{{tag}}</view>
-    <view class="tag-count">{{total}} 篇{{isRegion ? '政策动态' : '相关文章'}}</view>
+    <view class="tag-head-main">
+      <view class="tag-name">{{tag}}</view>
+      <view class="tag-count">{{total}} 篇{{isRegion ? '政策动态' : '相关文章'}}</view>
+    </view>
+    <view class="tag-follow-btn {{isFollowed ? 'tag-followed' : ''}}" bindtap="onToggleFollow">
+      {{isFollowed ? '✓ 已关注' : '+ 关注'}}
+    </view>
+  </view>
+
+  <!-- 重要性档位筛选（多选，服务端过滤） -->
+  <view class="band-bar tag-band-bar">
+    <text class="band-bar-label">重要性</text>
+    <view
+      wx:for="{{scoreBandChips}}"
+      wx:key="min"
+      class="band-chip {{item.selected ? 'band-chip-active' : ''}}"
+      data-min="{{item.min}}"
+      bindtap="onBandToggle"
+    >{{item.label}}</view>
+    <text wx:if="{{activeBands.length > 0}}" class="band-bar-clear" bindtap="onClearBands">清空</text>
   </view>
 
   <!-- 加载中 -->
