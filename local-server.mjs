@@ -84,9 +84,19 @@ function parseKeyPoints(raw) {
   }
 }
 
+// 当前采集轮的起点时刻（UTC 字符串）：四轮在北京时间 8/11/14/20 点触发，对应 UTC 0/3/6/12 点。
+// 本轮起点之后入库的文章带 is_new 标，下一轮开始后自动失效——前端无需任何配置
+function roundStartUTC(now = new Date()) {
+  const HOURS = [0, 3, 6, 12];
+  const start = HOURS.filter(x => x <= now.getUTCHours()).pop();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), start, 0, 0))
+    .toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // 给列表行附加解析后的tags对象
 function withParsedTags(row) {
-  return { ...row, tags: parseTags(row.tags), is_featured: !!row.is_featured, is_breaking: !!row.is_breaking };
+  const isNew = !!row.collected_at && row.collected_at >= roundStartUTC();
+  return { ...row, tags: parseTags(row.tags), is_featured: !!row.is_featured, is_breaking: !!row.is_breaking, is_new: isNew };
 }
 
 // 构造tag的LIKE匹配值：匹配tags JSON里任一数组包含该值，剥离引号/LIKE通配符防注入
@@ -297,7 +307,7 @@ function handleRequest(req, res) {
     if (pathname === '/api/featured') {
       const date = query.date || new Date().toISOString().split('T')[0];
       const rows = db.prepare(`
-        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, published_at, tags
+        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, published_at, collected_at, tags
         FROM articles WHERE date_key = ? AND is_featured = 1 AND category != 'noise'
         ORDER BY ai_score DESC
       `).all(date);
@@ -352,7 +362,7 @@ function handleRequest(req, res) {
 
       const total = db.prepare(`SELECT COUNT(*) as t FROM articles ${whereSQL}`).get(...args).t;
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, tags
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, collected_at, tags
         FROM articles ${whereSQL}
         ORDER BY date_key DESC, ai_score DESC LIMIT ? OFFSET ?
       `).all(...args, limit, offset);
@@ -493,7 +503,7 @@ function handleRequest(req, res) {
       // 窗函数做“每天取前N”：rn 是天内排名，day_rn 是第几新的一天（每天一个名次，
       // 所以用 DENSE_RANK 而不是 ROW_NUMBER）。天内排序以精选优先，被截掉的一定是分低的。
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, tags, date_key
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, collected_at, tags, date_key
         FROM (
           SELECT *,
             ROW_NUMBER() OVER (PARTITION BY date_key ORDER BY is_featured DESC, ai_score DESC) AS rn,
@@ -528,7 +538,7 @@ function handleRequest(req, res) {
 
       const total = db.prepare(`SELECT COUNT(*) AS t ${filter}`).get(...args).t;
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, tags, date_key
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, collected_at, tags, date_key
         ${filter}
         ORDER BY ai_score - (julianday(?) - julianday(date_key)) * ${ARCHIVE_DECAY_PER_DAY} DESC, date_key DESC
         LIMIT ?
