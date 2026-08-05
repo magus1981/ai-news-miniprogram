@@ -30,6 +30,7 @@
       data-type="regions"
       catchtap="onSubtagTap"
     >{{article.tags.regions[0]}}</text>
+    <text wx:if="{{article.is_new}}" class="article-new">新</text>
     <text wx:if="{{article.is_breaking}}" class="article-breaking">突发</text>
     <text wx:if="{{article.is_featured}}" class="article-hot">精选</text>
   </view>
