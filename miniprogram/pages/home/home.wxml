@@ -58,6 +58,7 @@
         <text class="hero-rank">01</text>
         <text class="tag tag-{{heroArticle.category}}">{{fmt.categoryLabel(heroArticle.category)}}</text>
         <text class="score-badge {{fmt.scoreBandClass(heroArticle.ai_score)}}">{{fmt.scoreBand(heroArticle.ai_score)}}</text>
+        <text wx:if="{{heroArticle.is_new}}" class="new-badge">新</text>
       </view>
       <view class="hero-title">{{heroArticle.title}}</view>
       <view class="hero-summary">{{heroArticle.summary}}</view>
@@ -84,6 +85,7 @@
         </view>
       </view>
       <text class="score-badge {{fmt.scoreBandClass(item.ai_score)}}">{{fmt.scoreBand(item.ai_score)}}</text>
+      <text wx:if="{{item.is_new}}" class="new-badge">新</text>
     </view>
 
     <!-- 今日其余资讯 -->
@@ -184,7 +186,7 @@
         <text class="rest-title">你还没看的</text>
         <text class="rest-count">{{catchupShown}} 条</text>
       </view>
-      <view class="section-hint">每天分早、午、晚三批更新，这些是你上次离开后新增的</view>
+      <view class="section-hint">每天分早、上午、午、晚四批更新，这些是你上次离开后新增的</view>
       <block wx:for="{{catchupGroups}}" wx:key="date" wx:for-item="group">
         <view class="catchup-day">{{group.label}} · {{group.articles.length}} 条</view>
         <article-item wx:for="{{group.articles}}" wx:for-item="item" wx:key="id" article="{{item}}" />
