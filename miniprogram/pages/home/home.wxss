@@ -62,6 +62,35 @@
 }
 
 /* ===== 简报头 ===== */
+/* 品牌头：logo + 名称 + slogan */
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  padding: 8rpx 8rpx 20rpx;
+}
+.brand-logo {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 18rpx;
+  box-shadow: 0 4rpx 12rpx rgba(99, 102, 241, 0.25);
+}
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+.brand-name {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: #1e1b4b;
+  letter-spacing: 2rpx;
+}
+.brand-slogan {
+  font-size: 22rpx;
+  color: #6b7280;
+  margin-top: 2rpx;
+}
+
 .brief-header {
   padding: 16rpx 8rpx 28rpx;
 }
@@ -176,6 +205,18 @@
 
 .hero-top .score-badge {
   margin-left: auto;
+}
+
+/* 新增角标：本轮采集刚入库，绿底白字，与红色突发/精选区分 */
+.new-badge {
+  font-size: 20rpx;
+  color: #fff;
+  background: #10b981;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  font-weight: 600;
+  margin-left: 8rpx;
+  flex-shrink: 0;
 }
 
 .hero-title {
