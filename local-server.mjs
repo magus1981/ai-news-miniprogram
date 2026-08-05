@@ -272,6 +272,12 @@ function handleRequest(req, res) {
         const old = db; db = null;
         try { old.close(); } catch {}
         fs.copyFileSync(tmpPath, dbPath);
+        // 2026-08-05 事故教训：覆盖主文件后必须清掉残留的 -wal/-shm，
+        // 否则 openDb 会拿旧 WAL 去套新主文件，整库必坏（当时小程序全量 500）
+        for (const suffix of ['-wal', '-shm']) {
+          try { fs.unlinkSync(dbPath + suffix); } catch {}
+          try { fs.unlinkSync(tmpPath + suffix); } catch {}
+        }
         fs.unlinkSync(tmpPath);
         openDb();
         console.log(`[sync] 数据库已更新: ${cnt} 篇文章`);
