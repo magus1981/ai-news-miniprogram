@@ -68,6 +68,16 @@
   border-radius: 4rpx;
 }
 
+/* 新增角标：本轮采集刚入库，绿底白字，与红色突发/精选区分 */
+.article-new {
+  font-size: 20rpx;
+  color: #fff;
+  background: #10b981;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  font-weight: 600;
+}
+
 /* 突发角标：实心红底，比精选更醒目 */
 .article-breaking {
   font-size: 20rpx;
