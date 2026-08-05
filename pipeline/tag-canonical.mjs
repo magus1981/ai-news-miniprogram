@@ -68,6 +68,9 @@ const COMPANY_ALIASES = {
   'xAI': ['X.ai', 'X AI'],
   'Stability AI': ['StabilityAI'],
   'SSI': ['Safe Superintelligence', 'Safe Superintelligence Inc'],
+  // SpaceX：曾因未入白名单导致其新闻被误标为合作方 Anthropic（2026-08-05 用户反馈）；
+  // Starlink 为其星链子业务，按子品牌上卷规则归母公司
+  'SpaceX': ['Space X', 'SpaceX Starlink', 'Starlink'],
   'SK Hynix': ['SK hynix', 'SKHynix'],
   'AMD': [],
   'IBM': [],
