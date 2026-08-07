@@ -226,6 +226,20 @@ export const SOURCES = [
     source_type: 'official',
     official: true, // 官方低频源：无日期条目放行
   },
+  {
+    name: '网信办',
+    // 中国AI政策一手源（补中国政策信源空白，2026-08-07）：生成式AI/深度合成/算法备案公告、
+    // AI治理办法征求意见稿、法规规章均在此发布。无RSS，自爬两个静态栏目页（网信发布+政策法规），
+    // 非AI条目靠AI筛选闸门过滤。更新频率中低（周级），按官方源告警阈值放宽。
+    type: 'scraper',
+    scraper: 'cac',
+    url: 'https://www.cac.gov.cn/wxzw/wxfb/A093702index_1.htm', // 列表页URL（爬虫内部使用，此处仅作记录）
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
 ];
 
 // 7个分类定义
