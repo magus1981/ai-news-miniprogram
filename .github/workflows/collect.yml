@@ -24,6 +24,19 @@ jobs:
         working-directory: ./pipeline
         run: npm install
 
+      # curl-impersonate（Chrome TLS指纹）：机器之心WAF 2026-08-07起按TLS指纹拦截
+      # OpenSSL curl（含Actions自带的），必须用Chrome指纹才能过；下载失败降级用系统curl
+      - name: Setup curl-impersonate
+        working-directory: ./pipeline
+        run: |
+          mkdir -p bin
+          curl -sfL -o /tmp/ci.tar.gz https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz \
+            && tar -xzf /tmp/ci.tar.gz -C /tmp \
+            && cp /tmp/curl-impersonate-v0.6.1.x86_64-linux-gnu/curl_chrome119 bin/ \
+            && chmod +x bin/curl_chrome119 \
+            && echo "[OK] curl_chrome119 ready" \
+            || echo "[WARN] curl-impersonate download failed, fallback to system curl"
+
       # 采集前先从生产服务器拉取当前库：Actions 每次是全新工作区，
       # 没有历史库就会从空库采集，推送后把服务器历史抹掉。
       # 拉取失败（服务器不可达/无数据）时降级为空库，继续往下走。
@@ -41,6 +54,9 @@ jobs:
         working-directory: ./pipeline
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          # 备用代理（当前机器之心已改用curl-impersonate直连，暂不启用）
+          # PROXY_URL: ${{ secrets.SYNC_URL }}
+          # PROXY_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: node collect.mjs || echo "[WARN] pipeline exited with error, pushing current DB state"
 
       - name: Push DB to production
