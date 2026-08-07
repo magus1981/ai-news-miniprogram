@@ -14,8 +14,20 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const execFileP = promisify(execFile);
+
+// curl-impersonate（模拟Chrome TLS指纹）：机器之心WAF 2026-08-07起按TLS指纹拦截，
+// OpenSSL系 curl/wget 全被重定向到推广页，只有Chrome指纹能过。
+// Actions 工作流会下载 curl_chrome119 到 pipeline/bin/；本地开发无此文件则回退系统curl（Windows Schannel指纹可过）
+const IMPERSONATE_CANDIDATES = [
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'curl_chrome119'),
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'curl_chrome116'),
+];
+const CURL_BIN = IMPERSONATE_CANDIDATES.find(p => fs.existsSync(p)) || 'curl';
 
 const SITE = 'https://www.jiqizhixin.com';
 const LIST_PAGE_URL = `${SITE}/articles`;
@@ -33,9 +45,27 @@ const SEGMENT_QUERY = (first, after) =>
 
 /**
  * 调用系统curl（WAF对Node fetch的TLS指纹几乎全部拦截，curl稳定放行）
+ * 2026-08-07 补充：机器之心 WAF 开始拦海外IP（Actions 的 curl 被重定向到推广页），
+ * 配置 PROXY_URL/PROXY_TOKEN 时改走生产服务器（国内IP）的 /api/proxy 代拉，
+ * 本地开发不设这两个变量即直连。
  * @returns {Promise<{status: number, headers: string, body: string}>}
  */
 async function curlFetch(url, { method = 'GET', headers = {}, body = null } = {}) {
+  // 代理模式：借服务器国内IP绕海外封锁
+  if (process.env.PROXY_URL && process.env.PROXY_TOKEN) {
+    const resp = await fetch(process.env.PROXY_URL.replace(/\/$/, '') + '/api/proxy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sync-token': process.env.PROXY_TOKEN },
+      body: JSON.stringify({ url, method, headers, body }),
+      signal: AbortSignal.timeout(TIMEOUT_SEC * 1000 + 5000),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(`代理请求失败: ${data.error || resp.status}`);
+    // 把 setCookies 拼回类HTTP头格式，与直连模式的下游解析逻辑保持一致
+    const cookieHeaders = (data.setCookies || []).map(c => `set-cookie: ${c}`).join('\r\n');
+    return { status: data.status, headers: cookieHeaders, body: data.body };
+  }
+
   const args = ['-sS', '-i', '--max-time', String(TIMEOUT_SEC)];
   for (const [k, v] of Object.entries(headers)) {
     args.push('-H', `${k}: ${v}`);
@@ -48,7 +78,7 @@ async function curlFetch(url, { method = 'GET', headers = {}, body = null } = {}
 
   let stdout;
   try {
-    ({ stdout } = await execFileP('curl', args, { maxBuffer: 8 * 1024 * 1024 }));
+    ({ stdout } = await execFileP(CURL_BIN, args, { maxBuffer: 8 * 1024 * 1024 }));
   } catch (err) {
     // curl非零退出（超时/网络错误等）
     throw new Error(`curl失败: ${err.message.slice(0, 150)}`);
