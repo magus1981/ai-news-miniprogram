@@ -266,8 +266,19 @@ function handleRequest(req, res) {
         if (buf.length < 4096) return sendJSON(res, 400, { error: 'payload too small' });
         fs.writeFileSync(tmpPath, buf);
         // 校验：能打开且含articles表
-        const test = new Database(tmpPath, { readonly: true });
+        const test = new Database(tmpPath);
         const cnt = test.prepare('SELECT COUNT(*) AS t FROM articles').get().t;
+        // 墓碑保护（2026-08-07 教训：手工删除的文章会被下一轮 Actions 整库上传复活，
+        // 谷歌重复新闻 628 删完次日又回来了）：上传库里若含墓碑名单中的 id，
+        // 直接在上传副本中删掉再替换。
+        let tombIds = [];
+        try {
+          tombIds = db.prepare('SELECT article_id FROM deleted_tombstones').all().map(r => r.article_id);
+          if (tombIds.length) {
+            const stmt = test.prepare('DELETE FROM articles WHERE id = ?');
+            for (const id of tombIds) stmt.run(id);
+          }
+        } catch {}
         test.close();
         // 防误清库：新库条数不足现有库一半时拒绝替换（Actions/本地采集异常时
         // 避免拿一个接近空的库把服务器历史数据整个抹掉）
@@ -290,6 +301,16 @@ function handleRequest(req, res) {
         }
         fs.unlinkSync(tmpPath);
         openDb();
+        // 上传库不含墓碑表，替换后需回写，否则墓碑只生效一轮
+        if (tombIds.length) {
+          try {
+            const w = new Database(dbPath);
+            w.exec('CREATE TABLE IF NOT EXISTS deleted_tombstones (article_id INTEGER PRIMARY KEY, deleted_at TEXT DEFAULT (datetime(\'now\')))');
+            const ins = w.prepare('INSERT OR IGNORE INTO deleted_tombstones (article_id) VALUES (?)');
+            for (const id of tombIds) ins.run(id);
+            w.close();
+          } catch {}
+        }
         console.log(`[sync] 数据库已更新: ${cnt} 篇文章`);
         return sendJSON(res, 200, { ok: true, articles: cnt });
       } catch (e) {
