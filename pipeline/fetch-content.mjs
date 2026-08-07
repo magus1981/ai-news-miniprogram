@@ -86,6 +86,9 @@ export function extractText(html) {
  * 机器之心（2026-07-30 实测）：文章页为SPA无服务端渲染（正文提取仅十几字），
  * WAF按TLS指纹拦截Node fetch重定向到推广页，但公开JSON端点 /api/v1/articles/{slug}
  * 用系统curl可直接返回含HTML全文的content字段；GraphQL的description/simpleContent已返回空。
+ *
+ * 网信办（2026-08-07 实测）：详情页服务端渲染无WAF，正文在 <DIV id=BodyLabel> 容器内，
+ * 通用提取器的容器class白名单不含该 id，需专用适配器定向截取。
  */
 const SITE_ADAPTERS = [
   {
@@ -102,6 +105,35 @@ const SITE_ADAPTERS = [
       if (!data.content) return null;
       const text = extractText(`<div>${data.content}</div>`);
       return text.length >= MIN_CONTENT_CHARS ? text : null;
+    },
+  },
+  {
+    match: (url) => url.includes('cac.gov.cn'),
+    fetch: async (url) => {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!resp.ok) return null;
+      const html = await resp.text();
+      // 正文容器 <DIV id=BodyLabel>（属性无引号）；内部还嵌套子div，
+      // 简单正则非贪婪会在子div处截断，用深度计数取完整容器
+      const open = html.search(/<div[^>]*id=["']?BodyLabel["']?/i);
+      let bodyHtml = html;
+      if (open >= 0) {
+        let depth = 0;
+        let end = html.length;
+        for (const m of html.slice(open).matchAll(/<\/?div\b[^>]*>/gi)) {
+          depth += m[0][1] === '/' ? -1 : 1;
+          if (depth === 0) { end = open + m.index + m[0].length; break; }
+        }
+        bodyHtml = html.slice(open, end);
+      }
+      const text = extractText(bodyHtml);
+      // 公告类正文天然短（备案清单就一两段），低于常规阈值也保留，
+      // 只有真正提不出东西才返回null退回标题
+      return text.length >= 50 ? text : null;
     },
   },
 ];
