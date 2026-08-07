@@ -30,12 +30,10 @@ jobs:
         working-directory: ./pipeline
         run: |
           mkdir -p bin
-          curl -sfL -o /tmp/ci.tar.gz https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz \
-            && tar -xzf /tmp/ci.tar.gz -C /tmp \
-            && cp /tmp/curl-impersonate-v0.6.1.x86_64-linux-gnu/curl_chrome119 bin/ \
-            && chmod +x bin/curl_chrome119 \
-            && echo "[OK] curl_chrome119 ready" \
-            || echo "[WARN] curl-impersonate download failed, fallback to system curl"
+          curl -sfL --retry 2 -o /tmp/ci.tar.gz https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz \
+            && tar -xzf /tmp/ci.tar.gz -C bin \
+            && chmod +x bin/* 2>/dev/null || true
+          if [ -x bin/curl_chrome119 ]; then echo "[OK] curl_chrome119 ready"; else echo "[WARN] curl-impersonate setup failed, fallback to system curl"; fi
 
       # 采集前先从生产服务器拉取当前库：Actions 每次是全新工作区，
       # 没有历史库就会从空库采集，推送后把服务器历史抹掉。
