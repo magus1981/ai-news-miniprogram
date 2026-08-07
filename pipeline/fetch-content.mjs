@@ -8,8 +8,19 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 const execFileP = promisify(execFile);
+
+// curl-impersonate（Chrome TLS指纹）：机器之心等站点WAF按TLS指纹拦截，OpenSSL curl被重定向；
+// 工作流会下载 curl_chrome119 到 pipeline/bin/，本地无则回退系统curl
+const IMPERSONATE_CANDIDATES = [
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'curl_chrome119'),
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'bin', 'curl_chrome116'),
+];
+const CURL_BIN = IMPERSONATE_CANDIDATES.find(p => fs.existsSync(p)) || 'curl';
 
 const FETCH_TIMEOUT_MS = 20000;
 const CONCURRENCY = 4;
@@ -79,6 +90,23 @@ export function extractText(html) {
 }
 
 /**
+ * 代理模式下的HTTP请求：配了 PROXY_URL/PROXY_TOKEN 就走生产服务器国内IP代拉
+ * （机器之心等站点对海外IP封锁，2026-08-07），否则返回null由调用方直连
+ */
+async function proxyFetchJson(spec) {
+  if (!process.env.PROXY_URL || !process.env.PROXY_TOKEN) return null;
+  const resp = await fetch(process.env.PROXY_URL.replace(/\/$/, '') + '/api/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-sync-token': process.env.PROXY_TOKEN },
+    body: JSON.stringify(spec),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS + 5000),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(`代理请求失败: ${data.error || resp.status}`);
+  return data;
+}
+
+/**
  * 站点专用抓取适配器：常规"fetch页面HTML提正文"对SPA/反爬站点无效，
  * 这些站点按域名走专用通道。适配器返回 string|null，抛错/返回null时不再走通用抓取
  * （通用抓取对这些站点必然拿到壳页/推广页，退回让摘要用snippet更安全）。
@@ -96,11 +124,18 @@ const SITE_ADAPTERS = [
     fetch: async (url) => {
       const slug = url.match(/articles\/([^/?#]+)/)?.[1];
       if (!slug) return null;
-      const { stdout } = await execFileP('curl', [
-        '-sS', '--max-time', String(Math.floor(FETCH_TIMEOUT_MS / 1000)),
-        '-A', UA, '-H', 'Accept: application/json',
-        `https://www.jiqizhixin.com/api/v1/articles/${slug}`,
-      ], { maxBuffer: 8 * 1024 * 1024 });
+      const apiUrl = `https://www.jiqizhixin.com/api/v1/articles/${slug}`;
+      let stdout;
+      const proxied = await proxyFetchJson({ url: apiUrl, method: 'GET', headers: { 'User-Agent': UA, 'Accept': 'application/json' } });
+      if (proxied) {
+        stdout = proxied.body;
+      } else {
+        ({ stdout } = await execFileP(CURL_BIN, [
+          '-sS', '--max-time', String(Math.floor(FETCH_TIMEOUT_MS / 1000)),
+          '-A', UA, '-H', 'Accept: application/json',
+          apiUrl,
+        ], { maxBuffer: 8 * 1024 * 1024 }));
+      }
       const data = JSON.parse(stdout);
       if (!data.content) return null;
       const text = extractText(`<div>${data.content}</div>`);
