@@ -21,6 +21,7 @@ import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
 import { scrapeAnthropic } from './scraper-anthropic.mjs';
 import { scrapeZhidx, scrapeXindongxi } from './scraper-zhidx.mjs';
 import { scrapeXinzhiyuan } from './scraper-xinzhiyuan.mjs';
+import { scrapeCac } from './scraper-cac.mjs';
 
 const parser = new Parser();
 
@@ -37,6 +38,7 @@ const SCRAPERS = {
   zhidx: scrapeZhidx,
   xindongxi: scrapeXindongxi,
   xinzhiyuan: scrapeXinzhiyuan,
+  cac: scrapeCac,
 };
 
 /**
