@@ -22,6 +22,7 @@ import { scrapeAnthropic } from './scraper-anthropic.mjs';
 import { scrapeZhidx, scrapeXindongxi } from './scraper-zhidx.mjs';
 import { scrapeXinzhiyuan } from './scraper-xinzhiyuan.mjs';
 import { scrapeCac } from './scraper-cac.mjs';
+import { scrapeMiit } from './scraper-miit.mjs';
 
 const parser = new Parser();
 
@@ -39,6 +40,7 @@ const SCRAPERS = {
   xindongxi: scrapeXindongxi,
   xinzhiyuan: scrapeXinzhiyuan,
   cac: scrapeCac,
+  miit: scrapeMiit,
 };
 
 /**
