@@ -171,6 +171,33 @@ const SITE_ADAPTERS = [
       return text.length >= 50 ? text : null;
     },
   },
+  {
+    match: (url) => url.includes('miit.gov.cn'),
+    fetch: async (url) => {
+      const resp = await fetch(url, {
+        headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!resp.ok) return null;
+      const html = await resp.text();
+      // 正文容器 <div class="ccontent center" id="con_con">，服务端直出；
+      // 同样用深度计数取完整容器，避免嵌套div截断
+      const open = html.search(/<div[^>]*id=["']?con_con["']?/i);
+      let bodyHtml = html;
+      if (open >= 0) {
+        let depth = 0;
+        let end = html.length;
+        for (const m of html.slice(open).matchAll(/<\/?div\b[^>]*>/gi)) {
+          depth += m[0][1] === '/' ? -1 : 1;
+          if (depth === 0) { end = open + m.index + m[0].length; break; }
+        }
+        bodyHtml = html.slice(open, end);
+      }
+      const text = extractText(bodyHtml);
+      return text.length >= 50 ? text : null;
+    },
+  },
 ];
 
 /**
