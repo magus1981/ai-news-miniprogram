@@ -252,6 +252,40 @@ function handleRequest(req, res) {
     return;
   }
 
+  // POST /api/proxy（供 GitHub Actions 采集时借国内IP代拉被海外封锁的站点，
+  // 2026-08-07：机器之心 WAF 开始拦海外IP，Actions 上 curl 被重定向到推广页）
+  // 请求体：{url, method?, headers?, body?}；返回 {status, contentType, body}，body 上限 2MB
+  if (req.method === 'POST' && pathname === '/api/proxy') {
+    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'proxy disabled' });
+    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', async () => {
+      try {
+        const spec = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!/^https:\/\//.test(spec.url || '')) return sendJSON(res, 400, { error: 'https only' });
+        const resp = await fetch(spec.url, {
+          method: spec.method === 'POST' ? 'POST' : 'GET',
+          headers: spec.headers || {},
+          body: spec.body != null ? spec.body : undefined,
+          redirect: 'follow',
+          signal: AbortSignal.timeout(20000),
+        });
+        let body = await resp.text();
+        if (body.length > 2 * 1024 * 1024) body = body.slice(0, 2 * 1024 * 1024);
+        return sendJSON(res, 200, {
+          status: resp.status,
+          contentType: resp.headers.get('content-type') || '',
+          setCookies: typeof resp.headers.getSetCookie === 'function' ? resp.headers.getSetCookie() : [],
+          body,
+        });
+      } catch (e) {
+        return sendJSON(res, 502, { error: e.message });
+      }
+    });
+    return;
+  }
+
   // POST /api/sync-upload（生产数据同步：整库上传+校验+原子替换）
   // 仅当设置了 SYNC_TOKEN 环境变量时启用。上传方携带 x-sync-token 头。
   if (req.method === 'POST' && pathname === '/api/sync-upload') {
