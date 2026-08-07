@@ -240,6 +240,20 @@ export const SOURCES = [
     official: true,
     alertDays: 7,
   },
+  {
+    name: '工信部',
+    // 中国工信领域政策一手源（2026-08-07）：AI/电信/数据类政策文件、行业标准征求意见。
+    // 页面JS渲染，走search-front-server搜索接口（官方文件发布页的底层数据源）。
+    // 非AI条目靠AI筛选闸门过滤。
+    type: 'scraper',
+    scraper: 'miit',
+    url: 'https://www.miit.gov.cn/zwgk/zcwj/wjfb/index.html', // 仅作记录，爬虫内部调API
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
 ];
 
 // 7个分类定义
