@@ -87,23 +87,49 @@ Page({
     // 水位线在本次会话内固定，保证补读区不会边看边缩
     this._lastReadAt = ensureLastReadAt();
     this.setDate(todayStr());
-    this.loadData();
+    // 今日日报可能尚未产出（清晨首轮未入库/周末稿荒），先解析最新一期再加载，
+    // 避免首页钉在空白的「今天」上（dateLabel 会如实显示回退到的日期）
+    this.resolveLatestEdition().then(date => {
+      if (date !== this.data.date) this.setDate(date);
+      this.loadData();
+      // 往期区要剔掉补读区已展示的条目，所以等补读区落定后再拉
+      this.loadCatchup().then(() => this.loadArchive());
+    });
     this.loadDateIndex(); // 异步预取往期索引，不阻塞首屏
-    // 往期区要剔掉补读区已展示的条目，所以等补读区落定后再拉
-    this.loadCatchup().then(() => this.loadArchive());
+  },
+
+  // 今日有文章就看今天；否则回退到最近一期有内容的日报。
+  // 解析失败时兜底返回今天，让加载走原有的错误态，不新增静默失败面。
+  async resolveLatestEdition() {
+    try {
+      const today = todayStr();
+      const res = await getArticles({ category: 'all', date: today, page: 1, limit: 1 });
+      if ((res.articles || []).length > 0) return today;
+      const datesRes = await getDates();
+      const latest = (datesRes.dates || []).find(d => (d.total || 0) > 0);
+      return latest ? latest.date : today;
+    } catch (err) {
+      console.error('解析最新一期失败:', err);
+      return todayStr();
+    }
   },
 
   // 小程序常驻后台，第二天从后台唤起时不会重跑 onLoad——
-  // 不主动比对日期的话，用户看到的还是标着「今日必读」的昨天那份日报
+  // 不主动比对日期的话，用户看到的还是标着「今日必读」的昨天那份日报。
+  // 回退态（在看往期）下唤起：今天已产出新日报就切回今天，否则留在原地，
+  // 不能像旧逻辑那样无脑切今天——今天没货时又是一片空白。
   onShow() {
     const today = todayStr();
-    if (!this.data.date || !this.data.isToday || this.data.date === today) return;
-    this._lastReadAt = ensureLastReadAt();
-    this.setDate(today);
-    this._archiveCache = {};
-    this.loadData();
-    this.loadDateIndex();
-    this.loadCatchup().then(() => this.loadArchive());
+    if (!this.data.date || this.data.date === today) return;
+    this.resolveLatestEdition().then(date => {
+      if (date === this.data.date) return;
+      this._lastReadAt = ensureLastReadAt();
+      this.setDate(date);
+      this._archiveCache = {};
+      this.loadData();
+      this.loadDateIndex();
+      this.loadCatchup().then(() => this.loadArchive());
+    });
   },
 
   onPullDownRefresh() {
