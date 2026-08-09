@@ -1,7 +1,7 @@
 name: AI News Collection Pipeline
 
 on:
-  # 定时触发改由生产服务器 crontab 调 API 发起（每天 08:05/11:05/14:05/20:05 北京时间，2026-08-05 起四轮）：
+  # 定时触发改由生产服务器 crontab 调 API 发起（每天 07:35/11:05/14:05/20:05 北京时间，2026-08-09 起早班提前到 7:35 赶在用户起床前产出当日日报）：
   # GitHub 自带 cron 对新加入的 schedule 不可靠（实测 2026-08-04 三轮全部漏跑），
   # 服务器触发更可控；保留 workflow_dispatch 支持手动补跑
   workflow_dispatch: # 支持手动触发
