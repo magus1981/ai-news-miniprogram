@@ -817,35 +817,44 @@ export function mergeIntoKept(kept, dropped) {
 }
 
 /**
- * 日配额选取（纯函数，供测试）：一日多轮采集共享"每日10-20条"配额
+ * 日配额选取（纯函数，供测试）：一日多轮采集共享“每日10-20条”配额
  * - 首轮（当日0条）：>=60分取最多20条，不足10条用5 6-59分补齐到10条
  * - 增量轮：配额=20-已有数；当日已达10条后门槛抬到70分——
- *   后续轮次只补"行业重要动态"级以上，不用凑数文章稀释日报
+ *   后续轮次只补“行业重要动态”级以上，不用凑数文章稀释日报
  * - 配额已满：只放行>=85分重大突发（最多2条），大新闻不因来得晚而漏掉
+ * - 官方政策保护通道：官方政策源（网信办/工信部等）周更级频率，在增量配额里
+ *   永远竞争不过当日新闻（2026-08-10事故：网信办08-07征求意见稿在08-09
+ *   因当日只剩1个名额被挤掉）。>=70分的官方政策条目保送（每轮至多2条），
+ *   不占日配额；量级每周仅几条，不会灌爆日报
  * @param {Array} deduped - 事件去重后的文章（分数降序）
  * @param {number} existingCount - 当日已入库文章数
  */
 export function selectByQuota(deduped, existingCount = 0) {
+  const isProtectedPolicy = a => a.source_type === 'official' && a.category === 'policy' && a.ai_score >= 70;
+  const protectedPicks = deduped.filter(isProtectedPolicy).slice(0, 2);
+  const pool = protectedPicks.length ? deduped.filter(a => !protectedPicks.includes(a)) : deduped;
+  if (protectedPicks.length) console.log(`政策保护通道: 免配额放行 ${protectedPicks.length} 条官方政策(>=70分)`);
+
   const capRemaining = Math.max(0, 20 - existingCount);
   if (capRemaining === 0) {
-    const breaking = deduped.filter(a => a.ai_score >= 85).slice(0, 2);
+    const breaking = pool.filter(a => a.ai_score >= 85).slice(0, 2);
     if (breaking.length) console.log(`突发通道: 当日配额已满，仍放行 ${breaking.length} 条(>=85分)`);
-    return breaking;
+    return [...protectedPicks, ...breaking];
   }
   const minScore = existingCount >= 10 ? 70 : 60;
-  const qualified = deduped.filter(a => a.ai_score >= minScore);
+  const qualified = pool.filter(a => a.ai_score >= minScore);
   let selected = qualified.slice(0, capRemaining);
-  // 数量保障只对"当日总数不足10条"生效
-  // （补齐地板56分：按锚点口径56-59属"边缘"上沿，宁可用它凑满当日下限，也有跨期查重与精选门槛兜底）
+  // 数量保障只对“当日总数不足10条”生效
+  // （补齐地板56分：按锚点口径56-59属“边缘”上沿，宁可用它凑满当日下限，也有跨期查重与精选门槛兜底）
   const dayShort = 10 - existingCount - selected.length;
   if (dayShort > 0) {
-    const backfill = deduped.filter(a => a.ai_score >= 56 && a.ai_score < minScore).slice(0, dayShort);
+    const backfill = pool.filter(a => a.ai_score >= 56 && a.ai_score < minScore).slice(0, dayShort);
     if (backfill.length > 0) {
       console.log(`数量保障: 当日不足10条，用56-${minScore - 1}分段补入 ${backfill.length} 条`);
       selected = selected.concat(backfill);
     }
   }
-  return selected;
+  return [...protectedPicks, ...selected];
 }
 
 /**

@@ -412,6 +412,26 @@ T('跨日配额: 昨天已满(20)只放行>=85突发，今天不受影响', () =
   const selYestFull = selectByQuota(mkA([90, 84, 80]), 20); // 昨天已满
   return selToday.length >= 10 && selYestFull.length === 1 && selYestFull[0].ai_score === 90;
 });
+T('政策保护通道: 官方政策>=70配额已满也保送，且不占配额', () => {
+  const list = mkA([{ ai_score: 72, source_type: 'official', category: 'policy' }, 90, 84]);
+  const sel = selectByQuota(list, 20); // 当日已满：普通通道只放>=85突发
+  return sel.length === 2 && sel[0].ai_score === 72 && sel[1].ai_score === 90;
+});
+T('政策保护通道: <70不保送，每轮上限2条', () => {
+  const list = mkA([
+    { ai_score: 75, source_type: 'official', category: 'policy' },
+    { ai_score: 74, source_type: 'official', category: 'policy' },
+    { ai_score: 71, source_type: 'official', category: 'policy' },
+    { ai_score: 69, source_type: 'official', category: 'policy' },
+  ]);
+  const sel = selectByQuota(list, 20);
+  return sel.map(a => a.ai_score).join(',') === '75,74';
+});
+T('政策保护通道: 非官方源的政策文章不享保送', () => {
+  const list = mkA([{ ai_score: 78, source_type: 'media', category: 'policy' }, 90]);
+  const sel = selectByQuota(list, 20);
+  return sel.length === 1 && sel[0].ai_score === 90;
+});
 T('跨日精选: 昨天增量精选走 5-已精选 预算且守80分线', () => {
   const yest = mkA([90, 82, 78]); // 昨天已精选2条
   const marked = markFeatured(yest, { existingCount: 15, existingFeatured: 2 });

@@ -28,6 +28,10 @@ const parser = new Parser();
 
 // 仅采集最近72小时内的文章（放宽以覆盖低频官方博客）
 const HOURS_WINDOW = 72;
+// 官方源（政府站）周更级频率，72h窗口对它太苛刻：漏一次即永久丢失
+// （2026-08-10教训：网信办08-07征求意见稿超窗后又被配额竞争挤掉）。
+// 每天采4轮，新发布首轮就会抓到；放宽到7天纯为防“漏一次=永久丢”。
+const OFFICIAL_WINDOW_DAYS = 7;
 // 未来日期容忍上限：超过当前时间+1天的一律剔除
 const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 
@@ -67,11 +71,11 @@ export function normalizePublishedAt(raw, sourceName, title) {
  * 时效性过滤（作用于已含 published_at 字段的文章数组）
  * - 无日期/日期解析失败：官方源放行，其他源丢弃
  * - 未来日期（超过当前时间+1天）：一律剔除
- * - 超出72小时窗口：丢弃
+ * - 超出窗口丢弃：官方源7天，其他源72小时
  */
 export function filterByFreshness(articles, source) {  const now = Date.now();
-  const cutoff = now - HOURS_WINDOW * 60 * 60 * 1000;
   const official = isOfficialSource(source);
+  const cutoff = now - (official ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 60 * 60 * 1000;
 
   return articles.filter(a => {
     const ts = a.published_at ? new Date(a.published_at).getTime() : NaN;
@@ -97,8 +101,8 @@ async function fetchSource(source, attempt = 1) {
     const feed = await parser.parseString(xml);
     const rawCount = (feed.items || []).length;
     const now = Date.now();
-    const cutoff = now - HOURS_WINDOW * 60 * 60 * 1000;
     const official = isOfficialSource(source);
+    const cutoff = now - (official ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 60 * 60 * 1000;
 
     const articles = (feed.items || [])
       .filter(item => {
