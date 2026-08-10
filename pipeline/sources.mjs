@@ -196,6 +196,16 @@ export const SOURCES = [
     language: 'zh',
     source_type: 'media',
   },
+  {
+    name: '极客公园',
+    // 老牌科技媒体，AI内容浓度高（实测83%）；深度实测类文章（AI硬件/应用评测）补国内源短板；
+    // 多新闻快讯聚合条目（极客早知道）与量子位/新智元重叠，靠事件簇去重+衍生稿封顶自然压制；
+    // 2026-08-09 实测默认UA拉取+解析通过（30条带ISO日期）
+    url: 'https://www.geekpark.net/rss',
+    category: 'technology',
+    language: 'zh',
+    source_type: 'media',
+  },
 
   // === 政策源（policy维度专职信源，2026-07-29 实测拉取+解析验证通过） ===
   {
