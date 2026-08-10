@@ -100,6 +100,8 @@ export async function initDB() {
     `ALTER TABLE articles ADD COLUMN score_detail TEXT DEFAULT ''`,
     // 同来源同事件被合并的稿件数：前台可展示"官方连发N篇"，也供质检核对合并是否生效
     `ALTER TABLE articles ADD COLUMN merged_count INTEGER DEFAULT 0`,
+    // 资料库存档：正文HTML快照（图片引用已改写为本地archive路径，随整库同步走）
+    `ALTER TABLE articles ADD COLUMN content_html TEXT DEFAULT ''`,
     // 归一化事件名：详情页"此前相关报道"靠它认出同一事件的前情进展。
     // 旧行为空（采集时未落库），查询侧必须把空值当"无信号"而不是"同事件"
     `ALTER TABLE articles ADD COLUMN event_norm TEXT DEFAULT ''`,
@@ -174,8 +176,8 @@ export async function insertArticles(articles) {
   let skipped = 0;
 
   const insertSQL = `INSERT OR IGNORE INTO articles 
-    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, takeaway, key_points, quote, score_detail, merged_count, event_norm)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, content_html, takeaway, key_points, quote, score_detail, merged_count, event_norm)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   for (const article of articles) {
     const args = [
@@ -192,6 +194,7 @@ export async function insertArticles(articles) {
       article.date_key,
       article.tags || '[]',
       article.content || '', // 抓取的原文全文（存档供事实二审/重生成摘要）
+      article.content_html || '', // 正文HTML快照（资料库存档，2026-08-10 起）
       article.takeaway || '', // 一句话要点
       article.key_points || '[]', // 核心事实要点（JSON数组）
       article.quote || '', // 原文金句（已程序校验逐字来自原文）

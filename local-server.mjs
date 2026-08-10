@@ -4,17 +4,26 @@
  * 默认端口: 3000
  */
 import { createServer } from 'http';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
 import { SOURCES, alertThreshold } from './pipeline/sources.mjs';
+
+const execFileP = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 const dbPath = join(__dirname, 'data', 'articles.db');
+// 资料库存档目录（data/archive/{url哈希}/，与仓库 data/ 同根，供静态回显与同步打包）
+const archiveDir = join(__dirname, 'data', 'archive');
+// 存档上传体上限（单轮正常几MB~几十MB，防异常膨胀）
+const MAX_ARCHIVE_UPLOAD = 200 * 1024 * 1024;
 // 生产数据同步开关：设置 SYNC_TOKEN 环境变量后启用 POST /api/sync-upload（本地开发不设即关闭）
 const SYNC_TOKEN = process.env.SYNC_TOKEN || '';
 
@@ -82,6 +91,18 @@ function parseKeyPoints(raw) {
   } catch {
     return [];
   }
+}
+
+// 递归统计目录下文件数（含子目录；供存档同步防误清校验）
+function countFiles(dir) {
+  let n = 0;
+  try {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.isDirectory()) n += countFiles(join(dir, ent.name));
+      else n++;
+    }
+  } catch {}
+  return n;
 }
 
 // 当前采集轮的起点时刻（UTC 字符串）：四轮在北京时间 8/11/14/20 点触发，对应 UTC 0/3/6/12 点。
@@ -252,6 +273,36 @@ function handleRequest(req, res) {
     return;
   }
 
+  // GET /api/sync-archive-download（供 GitHub Actions 采集前拉回服务器存量存档：
+  // Actions 每次全新工作区，不先拉回再增量，整包回传会把服务器存档抹掉）
+  // 实现：预打包到 data/archive.tar.gz 缓存再流式发文件（Windows bsdtar 的
+  // "-czf -" 管道输出会挂起，写文件正常；mtime 比目录旧时自动重建）
+  if (req.method === 'GET' && pathname === '/api/sync-archive-download') {
+    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
+    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    if (!fs.existsSync(archiveDir)) return sendJSON(res, 404, { error: 'no archive yet' });
+    (async () => {
+      try {
+        const bundlePath = join(__dirname, 'data', 'archive.tar.gz');
+        const needBuild = !fs.existsSync(bundlePath)
+          || fs.statSync(archiveDir).mtimeMs > fs.statSync(bundlePath).mtimeMs;
+        if (needBuild) {
+          await execFileP('tar', ['-czf', bundlePath, '-C', join(__dirname, 'data'), 'archive'], { timeout: 120000 });
+        }
+        res.writeHead(200, {
+          'Content-Type': 'application/gzip',
+          'Content-Disposition': 'attachment; filename="archive.tar.gz"',
+        });
+        fs.createReadStream(bundlePath).pipe(res);
+      } catch (e) {
+        console.error('[sync] 存档打包失败:', e.message);
+        if (!res.headersSent) return sendJSON(res, 500, { error: e.message });
+        res.destroy();
+      }
+    })();
+    return;
+  }
+
   // POST /api/proxy（供 GitHub Actions 采集时借国内IP代拉被海外封锁的站点，
   // 2026-08-07：机器之心 WAF 开始拦海外IP，Actions 上 curl 被重定向到推广页）
   // 请求体：{url, method?, headers?, body?}；返回 {status, contentType, body}，body 上限 2MB
@@ -281,6 +332,53 @@ function handleRequest(req, res) {
         });
       } catch (e) {
         return sendJSON(res, 502, { error: e.message });
+      }
+    });
+    return;
+  }
+
+  // POST /api/sync-archive（资料库存档同步：接收 tar.gz 整包，解到临时目录后原子替换）
+  // 与 sync-upload 同构：防误清对应物——老存档有图而新包空图时拒收
+  // （客户端拉取失败的空工作区回传会把服务器存档抹掉）
+  if (req.method === 'POST' && pathname === '/api/sync-archive') {
+    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
+    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    const chunks = [];
+    req.on('data', c => chunks.push(c));
+    req.on('end', async () => {
+      const tmpTar = join(__dirname, 'data', 'archive.upload.tgz');
+      const tmpDir = join(__dirname, 'data', 'archive.new');
+      const oldBackup = join(__dirname, 'data', 'archive.old');
+      try {
+        const abuf = Buffer.concat(chunks);
+        if (abuf.length < 100) return sendJSON(res, 400, { error: 'payload too small' });
+        if (abuf.length > MAX_ARCHIVE_UPLOAD) return sendJSON(res, 413, { error: 'archive too large' });
+        fs.writeFileSync(tmpTar, abuf);
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.mkdirSync(tmpDir, { recursive: true });
+        await execFileP('tar', ['-xzf', tmpTar, '-C', tmpDir], { timeout: 120000 });
+        const newCount = countFiles(tmpDir);
+        const oldCount = fs.existsSync(archiveDir) ? countFiles(archiveDir) : 0;
+        // 防误清（2026-08-10 与 sync-upload 同口径）：客户端每轮先拉再推，
+        // 正常回传的新包文件数 ≥ 老包；拉取失败的空工作区只含本轮新增，
+        // 文件数会明显少于老包——此时拒收，避免把服务器存量存档整个换掉
+        if (oldCount > 20 && newCount < Math.ceil(oldCount / 2)) {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+          return sendJSON(res, 409, { error: `refused: incoming ${newCount} < half of current ${oldCount} files` });
+        }
+        // 原子替换：当前目录改名备份 -> 新目录就位 -> 删备份（Windows rename 无法覆盖已存在目录）
+        fs.rmSync(oldBackup, { recursive: true, force: true });
+        if (fs.existsSync(archiveDir)) fs.renameSync(archiveDir, oldBackup);
+        fs.renameSync(tmpDir, archiveDir);
+        fs.rmSync(oldBackup, { recursive: true, force: true });
+        fs.rmSync(tmpTar, { force: true });
+        console.log(`[sync] 存档已更新: ${newCount} 个文件`);
+        return sendJSON(res, 200, { ok: true, files: newCount });
+      } catch (e) {
+        try { fs.rmSync(tmpTar, { force: true }); } catch {}
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+        console.error('[sync] 存档更新失败:', e.message);
+        return sendJSON(res, 500, { error: e.message });
       }
     });
     return;
@@ -620,6 +718,24 @@ function handleRequest(req, res) {
       });
     }
 
+    // GET /archive/...（资料库静态文件：文章HTML快照与图片，图片引用为 archive/{hash}/images/xx）
+    const archiveFileMatch = pathname.match(/^\/archive\/(.+)$/);
+    if (archiveFileMatch) {
+      const rel = decodeURIComponent(archiveFileMatch[1]);
+      const file = join(archiveDir, rel);
+      // 路径穿越防护：规范化后必须仍在 archiveDir 内
+      if (!file.startsWith(archiveDir + path.sep)) return sendJSON(res, 403, { error: 'forbidden' });
+      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return sendJSON(res, 404, { error: 'not found' });
+      const ext = path.extname(file).toLowerCase();
+      const mime = {
+        '.html': 'text/html; charset=utf-8', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
+      }[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+      fs.createReadStream(file).pipe(res);
+      return;
+    }
+
     // 404
     sendJSON(res, 404, { error: 'Not found' });
 
@@ -641,5 +757,6 @@ server.listen(PORT, () => {
   console.log(`  GET /api/catchup?since=<ISO时间>&before=YYYY-MM-DD`);
   console.log(`  GET /api/archive?category=&before=YYYY-MM-DD&limit=`);
   console.log(`  GET /api/article/:id`);
+  console.log(`  GET /archive/<hash>/...（资料库静态文件）`);
   console.log(`\n小程序开发时请确保此服务器运行中`);
 });
