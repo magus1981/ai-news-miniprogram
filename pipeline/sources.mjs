@@ -264,6 +264,48 @@ export const SOURCES = [
     official: true,
     alertDays: 7,
   },
+  {
+    name: '国务院',
+    // 最高权威政策源（2026-08-10）：“人工智能+”行动意见等国发文件首发地，
+    // 部门文件（发改委/科技部/市监总局等）也经政策文件库统一发布。
+    // 走政策文件库底层搜索API，国发+部门文件各取最新15条；非AI条目靠AI筛选闸门过滤。
+    type: 'scraper',
+    scraper: 'gov',
+    url: 'https://www.gov.cn/zhengce/zhengcewenjianku/', // 仅作记录，爬虫内部调API
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: 'TC260',
+    // 全国信息安全标准化技术委员会（2026-08-10）：AI安全标准事实基准，
+    // 《生成式人工智能服务安全基本要求》等大模型合规依据均出自该委。
+    // 首页SSR静态块，征求意见稿/标准发布公告AI浓度最高；非AI条目靠AI筛选闸门过滤。
+    type: 'scraper',
+    scraper: 'tc260',
+    url: 'https://www.tc260.org.cn/', // 仅作记录，爬虫内部抓首页
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '国家数据局',
+    // 数据要素×AI政策核心出口（2026-08-10）：行业高质量数据集建设、数据产权登记、
+    // 公共数据开发利用等文件在此发布。通知公告栏目（tzgg）政策密度最高，
+    // 列表页SSR静态HTML；课题征集/大赛公告等非AI条目靠AI筛选闸门过滤。
+    type: 'scraper',
+    scraper: 'nda',
+    url: 'https://www.nda.gov.cn/sjj/zwgk/tzgg/list/index_pc_1.html', // 仅作记录，爬虫内部使用
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
 ];
 
 // 7个分类定义

@@ -23,6 +23,9 @@ import { scrapeZhidx, scrapeXindongxi } from './scraper-zhidx.mjs';
 import { scrapeXinzhiyuan } from './scraper-xinzhiyuan.mjs';
 import { scrapeCac } from './scraper-cac.mjs';
 import { scrapeMiit } from './scraper-miit.mjs';
+import { scrapeGov } from './scraper-gov.mjs';
+import { scrapeTc260 } from './scraper-tc260.mjs';
+import { scrapeNda } from './scraper-nda.mjs';
 
 const parser = new Parser();
 
@@ -45,6 +48,9 @@ const SCRAPERS = {
   xinzhiyuan: scrapeXinzhiyuan,
   cac: scrapeCac,
   miit: scrapeMiit,
+  gov: scrapeGov,
+  tc260: scrapeTc260,
+  nda: scrapeNda,
 };
 
 /**
