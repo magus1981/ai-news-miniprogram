@@ -357,6 +357,16 @@ function handleRequest(req, res) {
         fs.rmSync(tmpDir, { recursive: true, force: true });
         fs.mkdirSync(tmpDir, { recursive: true });
         await execFileP('tar', ['-xzf', tmpTar, '-C', tmpDir], { timeout: 120000 });
+        // 客户端以 `-C data archive` 打包，包内带 archive/ 前缀；
+        // 解到将变成 archive 的临时目录后需剥掉一层，避免 archive/archive 嵌套
+        const inner = join(tmpDir, 'archive');
+        if (fs.existsSync(inner) && fs.statSync(inner).isDirectory()) {
+          const flat = join(__dirname, 'data', 'archive.new.flat');
+          fs.rmSync(flat, { recursive: true, force: true });
+          fs.renameSync(inner, flat);
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+          fs.renameSync(flat, tmpDir);
+        }
         const newCount = countFiles(tmpDir);
         const oldCount = fs.existsSync(archiveDir) ? countFiles(archiveDir) : 0;
         // 防误清（2026-08-10 与 sync-upload 同口径）：客户端每轮先拉再推，
