@@ -265,6 +265,15 @@ function handleRequest(req, res) {
   if (req.method === 'GET' && pathname === '/api/sync-download') {
     if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
     if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    // 下载前强制WAL checkpoint：WAL模式下近期提交（含服务器端手工补录）可能还留在
+    // -wal文件里，只传主库文件会丢数据，下一轮整库回推将其永久冲掉
+    // （2026-08-11事故：黎曼补录条目因此丢失）。服务连接是readonly，
+    // checkpoint需临时读写连接；失败不阻断下载（退化为旧行为）
+    try {
+      const ckpt = new Database(dbPath);
+      ckpt.pragma('wal_checkpoint(TRUNCATE)');
+      ckpt.close();
+    } catch (e) { console.error('[sync] WAL checkpoint失败:', e.message); }
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Disposition': 'attachment; filename="articles.db"',
