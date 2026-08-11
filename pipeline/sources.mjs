@@ -300,6 +300,150 @@ export const SOURCES = [
     official: true,
     alertDays: 7,
   },
+
+  // === 日本政策源（2026-08-11 接入）===
+  {
+    name: '総務省 MIC',
+    // 日本総務省報道資料RDF（RSS 1.0），AI/情報通信政策一手源
+    type: 'scraper',
+    scraper: 'soumu',
+    url: 'https://www.soumu.go.jp/news.rdf',
+    category: 'policy',
+    language: 'ja',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '経済産業省 METI',
+    // 日本経済産業省プレスリリース；站位于AWS WAF后，纯HTTP抓取间歇失败，靠重试+7天告警兜底
+    type: 'scraper',
+    scraper: 'meti',
+    url: 'https://www.meti.go.jp/press/',
+    category: 'policy',
+    language: 'ja',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: 'デジタル庁',
+    // 日本デジタル庁新着RSS（标准RSS 2.0，最易抓），AI/生成AI政策一手源
+    url: 'https://www.digital.go.jp/rss/news.xml',
+    category: 'policy',
+    language: 'ja',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+
+  // === 韓国政策源（2026-08-11 接入）===
+  {
+    name: 'MSIT 과기정통부',
+    // 韓国科学技術情報通信部報道資料RSS（pubDate非标准格式YYYY.MM.DD，故走自建爬虫解析）
+    type: 'scraper',
+    scraper: 'msit',
+    url: 'https://www.msit.go.kr/user/rss/rss.do?bbsSeqNo=94',
+    category: 'policy',
+    language: 'ko',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+
+  // === 中东政策源（2026-08-11 接入）===
+  {
+    name: 'SDAIA 沙特数据AI局',
+    // 沙特国家数据与AI管理局新闻API（SharePoint后端，无反爬）
+    type: 'scraper',
+    scraper: 'sdaia',
+    url: 'https://sdaia.gov.sa/en/MediaCenter/News/DataSources/NewsByYear.aspx',
+    category: 'policy',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: 'UAE AI News',
+    // 阿联酋AI部官网(ai.gov.ae)与内阁新闻站均403不可达，用Google News RSS兜底
+    url: 'https://news.google.com/rss/search?q=UAE+artificial+intelligence+OR+%22AI%22&hl=en&gl=AE&ceid=AE:en',
+    category: 'policy',
+    language: 'en',
+    source_type: 'media',
+  },
+
+  // === 国内补充政策源（2026-08-11 接入）===
+  {
+    name: '国家发改委',
+    // 发改委"政策发布"五子栏目静态列表页（委令/规范性文件/规划/公告/通知）
+    type: 'scraper',
+    scraper: 'ndrc',
+    url: 'https://www.ndrc.gov.cn/xxgk/zcfb/tz/',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '北京市政府',
+    type: 'scraper',
+    scraper: 'beijing',
+    url: 'https://www.beijing.gov.cn/zhengce/zhengcefagui/index.html',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '上海市政府',
+    type: 'scraper',
+    scraper: 'shanghai',
+    url: 'https://www.shanghai.gov.cn/gwk/policy/page',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '浙江省政府',
+    // 浙江省政策文件库JSON接口（须按regioncode过滤省级，否则混入市县文件）
+    type: 'scraper',
+    scraper: 'zhejiang',
+    url: 'https://zhengce.zj.gov.cn/policyweb/httpservice/getPolicy.do',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '广东省政府',
+    // 广东省政府"全部文件"静态列表页（须带浏览器UA，无UA裸请求返回空）
+    type: 'scraper',
+    scraper: 'guangdong',
+    url: 'http://www.gd.gov.cn/zwgk/wjk/qbwj/index.html',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
+  {
+    name: '江苏省政府',
+    // 江苏省人民政府"政策文件"栏目分页XML接口（columnid=84242）
+    type: 'scraper',
+    scraper: 'jiangsu',
+    url: 'https://www.jiangsu.gov.cn/col/col84242/index.html',
+    category: 'policy',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
 ];
 
 // 7个分类定义

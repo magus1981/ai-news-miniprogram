@@ -27,6 +27,16 @@ import { scrapeGov } from './scraper-gov.mjs';
 import { scrapeTc260 } from './scraper-tc260.mjs';
 import { scrapeNda } from './scraper-nda.mjs';
 import { scrapeTheHill } from './scraper-thehill.mjs';
+import { scrapeSoumu } from './scraper-soumu.mjs';
+import { scrapeMeti } from './scraper-meti.mjs';
+import { scrapeMsit } from './scraper-msit.mjs';
+import { scrapeSdaia } from './scraper-sdaia.mjs';
+import { scrapeNdrc } from './scraper-ndrc.mjs';
+import { scrapeBeijing } from './scraper-beijing.mjs';
+import { scrapeShanghai } from './scraper-shanghai.mjs';
+import { scrapeZhejiang } from './scraper-zhejiang.mjs';
+import { scrapeGuangdong } from './scraper-guangdong.mjs';
+import { scrapeJiangsu } from './scraper-jiangsu.mjs';
 
 const parser = new Parser();
 
@@ -53,6 +63,16 @@ const SCRAPERS = {
   tc260: scrapeTc260,
   nda: scrapeNda,
   thehill: scrapeTheHill,
+  soumu: scrapeSoumu,
+  meti: scrapeMeti,
+  msit: scrapeMsit,
+  sdaia: scrapeSdaia,
+  ndrc: scrapeNdrc,
+  beijing: scrapeBeijing,
+  shanghai: scrapeShanghai,
+  zhejiang: scrapeZhejiang,
+  guangdong: scrapeGuangdong,
+  jiangsu: scrapeJiangsu,
 };
 
 /**
