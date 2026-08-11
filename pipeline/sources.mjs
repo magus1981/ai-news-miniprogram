@@ -211,7 +211,10 @@ export const SOURCES = [
   {
     name: 'The Hill Tech',
     // 美国国会/立法/监管动态，非AI内容靠AI筛选闸门过滤
-    url: 'https://thehill.com/policy/technology/feed/',
+    // 2026-08-11 弃RSS改直连：RSS有5-9小时滞后致当日稿漏收，改走WP REST API（见scraper-thehill.mjs）
+    type: 'scraper',
+    scraper: 'thehill',
+    url: 'https://thehill.com/policy/technology/',
     category: 'policy',
     language: 'en',
     source_type: 'media',

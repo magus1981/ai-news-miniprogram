@@ -26,6 +26,7 @@ import { scrapeMiit } from './scraper-miit.mjs';
 import { scrapeGov } from './scraper-gov.mjs';
 import { scrapeTc260 } from './scraper-tc260.mjs';
 import { scrapeNda } from './scraper-nda.mjs';
+import { scrapeTheHill } from './scraper-thehill.mjs';
 
 const parser = new Parser();
 
@@ -51,6 +52,7 @@ const SCRAPERS = {
   gov: scrapeGov,
   tc260: scrapeTc260,
   nda: scrapeNda,
+  thehill: scrapeTheHill,
 };
 
 /**
