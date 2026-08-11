@@ -123,17 +123,8 @@ export const SOURCES = [
     language: 'en',
     source_type: 'media',
   },
-  {
-    name: 'SemiAnalysis',
-    // 算力/芯片/数据中心深度分析第一权威，补infra维度海外信源短板；
-    // 周更低频长文，2026-07-31 实测拉取+解析验证通过（10条带日期）
-    url: 'https://semianalysis.com/feed/',
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    category: 'infra',
-    language: 'en',
-    source_type: 'media',
-    alertDays: 7, // 周更节奏，按官方源频率告警
-  },
+  // SemiAnalysis 已于2026-08-11下线：其feed自2025年7月起停更（付费墙断供），
+  // 连续11天0产出告警，勿重新添加除非先实测feed恢复更新
 
   // === 国内源（直接RSS或自建爬虫，不依赖RSSHub） ===
   {
