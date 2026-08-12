@@ -329,37 +329,33 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
     }
     selected.sort((a, b) => b.ai_score - a.ai_score);
 
-    // 政策保底配额（2026-08-12）：政策类文章在AI评分中系统性低分，正常配额下几乎永远进不了
+    // 政策保底配额（2026-08-12 修复）：政策类文章在AI评分中系统性低分，正常配额下几乎永远进不了
     // 每日10-20条——12个新政策源（发改委/省市/日韩/中东）实测全部被科技融资新闻挤出。
     // 给政策维度每日保底 POLICY_QUOTA_PER_DAY 条：当天政策稿入选不足时，按分数从高到低补入，
     // 仅在当日总数未达日上限时补（不挤占科技新闻名额）；进精选仍走 markFeatured 统一标尺。
-    const POLICY_QUOTA_PER_DAY = 2;
-    const DAY_CAP = 20;
+    // 2026-08-12 晚抽查发现保底未生效：原实现只扫精评Top-30候选池（byDayCand），而政策稿
+    // AI评分系统性低分（当日12个政策源全抓到原始稿、候选池最低40分仍无一政策稿），保底循环
+    // 永远找不到政策文章。改为从"当日全量去重稿件"（byDayFull，含候选池外的低分政策稿）补入：
+    // 池内Top-30稿已被精评定分、其余用分批粗评分——政策维度只取当日最高分的几条，粗分序足够可靠；
+    // 补入稿仍走后续跨期查重、AI总结与AI时效校验，旧闻安全网不变。
     const byDaySelected = new Map();
     for (const a of selected) {
       const dk = a.date_key || beijingDayKey(a.published_at);
       if (!byDaySelected.has(dk)) byDaySelected.set(dk, []);
       byDaySelected.get(dk).push(a);
     }
-    for (const [dk, list] of byDayCand) {
-      const ctx = dayContexts[dk] || {};
-      const already = byDaySelected.get(dk) || [];
-      const policySelected = already.filter(a => a.category === 'policy').length;
-      const need = POLICY_QUOTA_PER_DAY - policySelected;
-      if (need <= 0) continue;
-      const room = DAY_CAP - (ctx.existingCount || 0) - already.length;
-      if (room <= 0) continue;
-      const take = Math.min(need, room);
-      const selectedUrls = new Set(already.map(a => a.source_url));
-      const promoted = list
-        .filter(a => a.category === 'policy' && !selectedUrls.has(a.source_url))
-        .slice(0, take);
-      if (promoted.length) {
-        console.log(`政策保底: ${dk} 补入 ${promoted.length} 条政策稿（原政策入选 ${policySelected} 条）`);
-        selected.push(...promoted);
-      }
+    const byDayFull = new Map();
+    for (const a of nearDup.list) {
+      const dk = beijingDayKey(a.published_at);
+      if (!byDayFull.has(dk)) byDayFull.set(dk, []);
+      byDayFull.get(dk).push(a);
     }
-    selected.sort((a, b) => b.ai_score - a.ai_score);
+    const policyPicks = policyQuotaPicks(byDayFull, byDaySelected, dayContexts);
+    if (policyPicks.length) {
+      for (const a of policyPicks) a.date_key = beijingDayKey(a.published_at); // 候选池外的稿补打日期键
+      selected.push(...policyPicks);
+      selected.sort((a, b) => b.ai_score - a.ai_score);
+    }
     
     // 终审查重安全网（制度性保障第三层）：首轮聚类靠"全量文章一次性打分+事件命名"，
     // 文章多时AI偶尔对同一事件给出无法模糊归并的两个事件名
@@ -894,6 +890,47 @@ export function selectByQuota(deduped, existingCount = 0) {
     }
   }
   return [...protectedPicks, ...selected];
+}
+
+/**
+ * 政策保底配额（纯函数，供测试）：政策类文章在AI评分中系统性低分，正常配额下几乎永远进不了
+ * 每日10-20条——12个新政策源（发改委/省市/日韩/中东）实测全部被科技融资新闻挤出。
+ * 给政策维度每日保底 POLICY_QUOTA_PER_DAY 条：当天政策稿入选不足时，按分数从高到低补入，
+ * 仅在当日总数未达日上限时补（不挤占科技新闻名额）；进精选仍走 markFeatured 统一标尺。
+ * 2026-08-12 修复：必须从"当日全量去重稿件"（byDayFull，含未进精评Top-30的低分政策稿）补入——
+ * 原实现只扫精评候选池，政策稿系统性低分根本进不了候选池，导致保底永不触发
+ * （当日12个政策源全抓到原始稿却0入选）。池内Top-30稿已被精评定分、其余用分批粗评分，
+ * 本函数按 ai_score 降序取当日最高分的政策稿，与分数来源无关。
+ * @param {Map<string, Array>} byDayFull - 当日全量去重稿件，按发布北京日分桶
+ * @param {Map<string, Array>} byDaySelected - 已入选文章按日分桶
+ * @param {Map<string, {existingCount?: number}>} dayContexts - 各日已入库数（配额口径）
+ * @returns {Array} 待补入的政策稿（调用方负责 push 进 selected 并重排）
+ */
+export function policyQuotaPicks(byDayFull, byDaySelected, dayContexts = {}) {
+  const POLICY_QUOTA_PER_DAY = 2;
+  const DAY_CAP = 20;
+  const picks = [];
+  for (const [dk, list] of byDayFull) {
+    const ctx = dayContexts[dk] || {};
+    const already = byDaySelected.get(dk) || [];
+    const policySelected = already.filter(a => a.category === 'policy').length;
+    const need = POLICY_QUOTA_PER_DAY - policySelected;
+    if (need <= 0) continue;
+    const room = DAY_CAP - (ctx.existingCount || 0) - already.length;
+    if (room <= 0) continue;
+    const take = Math.min(need, room);
+    // 已入选去重只认真实URL：无source_url的文章（如测试数据）不能因undefined落入"已入选"集合被误剔
+    const selectedUrls = new Set(already.map(a => a.source_url).filter(Boolean));
+    const promoted = [...list]
+      .sort((a, b) => b.ai_score - a.ai_score)
+      .filter(a => a.category === 'policy' && !(a.source_url && selectedUrls.has(a.source_url)))
+      .slice(0, take);
+    if (promoted.length) {
+      console.log(`政策保底: ${dk} 补入 ${promoted.length} 条政策稿（原政策入选 ${policySelected} 条，从当日全量去重稿件补入）`);
+      picks.push(...promoted);
+    }
+  }
+  return picks;
 }
 
 /**

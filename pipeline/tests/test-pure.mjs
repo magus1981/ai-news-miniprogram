@@ -12,7 +12,7 @@ import { applyTagInvariants } from '../classify-rules.mjs';
 import {
   parseDupIndexes, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
-  selectByQuota, beijingDayKey,
+  selectByQuota, policyQuotaPicks, beijingDayKey,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
@@ -431,6 +431,65 @@ T('政策保护通道: 非官方源的政策文章不享保送', () => {
   const list = mkA([{ ai_score: 78, source_type: 'media', category: 'policy' }, 90]);
   const sel = selectByQuota(list, 20);
   return sel.length === 1 && sel[0].ai_score === 90;
+});
+
+// ── 政策保底配额（2026-08-12 修复：从"当日全量去重稿件"补入，而非精评Top-30候选池）──
+// 生产事故复盘：政策稿AI评分系统性低分，进不了精评Top-30候选池（当日12个政策源全抓到
+// 原始稿、候选池最低40分仍无一政策稿），原实现只扫候选池→保底永不触发。
+T('政策保底: 政策稿未进候选池也能从全量池补入（当日0政策稿入选补满2条）', () => {
+  const day = '2026-08-12';
+  const tech = mkA([84, 80, 79, 78, 72, 70, 66, 62, 60, 55, 50, 45, 40, 38, 36]);
+  const policyLow = mkA([38, 42, 30]).map(a => ({ ...a, category: 'policy' })); // 打乱顺序验证按分降序取
+  const byDayFull = new Map([[day, [...tech, ...policyLow]]]);
+  const already = tech.slice(0, 4); // 已入选4条科技稿（当天已有10条）
+  const picks = policyQuotaPicks(byDayFull, new Map([[day, already]]), { [day]: { existingCount: 10 } });
+  return picks.length === 2
+    && picks.every(a => a.category === 'policy')
+    && picks[0].ai_score === 42
+    && picks[1].ai_score === 38;
+});
+T('政策保底: 当日已入选1条政策稿则只补1条', () => {
+  const day = '2026-08-12';
+  const policySel = { ai_score: 58, category: 'policy', source_url: 'gov/1' };
+  const byDayFull = new Map([[day, [
+    { ai_score: 62, category: 'company' },
+    policySel,
+    { ai_score: 41, category: 'policy', source_url: 'gov/2' },
+    { ai_score: 35, category: 'policy', source_url: 'gov/3' },
+  ]]]);
+  const picks = policyQuotaPicks(byDayFull, new Map([[day, [policySel]]]), { [day]: { existingCount: 5 } });
+  return picks.length === 1 && picks[0].source_url === 'gov/2';
+});
+T('政策保底: 当日名额已满(20)不挤占科技稿', () => {
+  const day = '2026-08-12';
+  const byDayFull = new Map([[day, [
+    { ai_score: 80, category: 'company' },
+    { ai_score: 45, category: 'policy' },
+  ]]]);
+  const already = mkA([82, 80, 79, 78, 77, 76, 75, 74, 73, 72]); // 已入选10条+已有10条=满20
+  const picks = policyQuotaPicks(byDayFull, new Map([[day, already]]), { [day]: { existingCount: 10 } });
+  return picks.length === 0;
+});
+T('政策保底: 已入选文章不被重复补入', () => {
+  const day = '2026-08-12';
+  const selPolicy = { ai_score: 60, category: 'policy', source_url: 'gov/dup' };
+  const byDayFull = new Map([[day, [
+    { ai_score: 70, category: 'company' },
+    selPolicy,
+    { ai_score: 40, category: 'policy', source_url: 'gov/other' },
+  ]]]);
+  const picks = policyQuotaPicks(byDayFull, new Map([[day, [selPolicy]]]), { [day]: { existingCount: 0 } });
+  return picks.length === 1 && picks[0].source_url === 'gov/other';
+});
+T('政策保底: 非政策稿不补，各发布日独立结算', () => {
+  const d1 = '2026-08-12';
+  const d2 = '2026-08-11';
+  const byDayFull = new Map([
+    [d1, [{ ai_score: 55, category: 'technology' }, { ai_score: 44, category: 'funding' }]],
+    [d2, [{ ai_score: 50, category: 'policy' }, { ai_score: 38, category: 'policy' }]],
+  ]);
+  const picks = policyQuotaPicks(byDayFull, new Map(), {});
+  return picks.length === 2 && picks.every(a => a.category === 'policy');
 });
 T('跨日精选: 昨天增量精选走 5-已精选 预算且守80分线', () => {
   const yest = mkA([90, 82, 78]); // 昨天已精选2条
