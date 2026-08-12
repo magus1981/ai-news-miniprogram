@@ -328,6 +328,38 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
       selected.push(...selectByQuota(list, ctx.existingCount || 0));
     }
     selected.sort((a, b) => b.ai_score - a.ai_score);
+
+    // 政策保底配额（2026-08-12）：政策类文章在AI评分中系统性低分，正常配额下几乎永远进不了
+    // 每日10-20条——12个新政策源（发改委/省市/日韩/中东）实测全部被科技融资新闻挤出。
+    // 给政策维度每日保底 POLICY_QUOTA_PER_DAY 条：当天政策稿入选不足时，按分数从高到低补入，
+    // 仅在当日总数未达日上限时补（不挤占科技新闻名额）；进精选仍走 markFeatured 统一标尺。
+    const POLICY_QUOTA_PER_DAY = 2;
+    const DAY_CAP = 20;
+    const byDaySelected = new Map();
+    for (const a of selected) {
+      const dk = a.date_key || beijingDayKey(a.published_at);
+      if (!byDaySelected.has(dk)) byDaySelected.set(dk, []);
+      byDaySelected.get(dk).push(a);
+    }
+    for (const [dk, list] of byDayCand) {
+      const ctx = dayContexts[dk] || {};
+      const already = byDaySelected.get(dk) || [];
+      const policySelected = already.filter(a => a.category === 'policy').length;
+      const need = POLICY_QUOTA_PER_DAY - policySelected;
+      if (need <= 0) continue;
+      const room = DAY_CAP - (ctx.existingCount || 0) - already.length;
+      if (room <= 0) continue;
+      const take = Math.min(need, room);
+      const selectedUrls = new Set(already.map(a => a.source_url));
+      const promoted = list
+        .filter(a => a.category === 'policy' && !selectedUrls.has(a.source_url))
+        .slice(0, take);
+      if (promoted.length) {
+        console.log(`政策保底: ${dk} 补入 ${promoted.length} 条政策稿（原政策入选 ${policySelected} 条）`);
+        selected.push(...promoted);
+      }
+    }
+    selected.sort((a, b) => b.ai_score - a.ai_score);
     
     // 终审查重安全网（制度性保障第三层）：首轮聚类靠"全量文章一次性打分+事件命名"，
     // 文章多时AI偶尔对同一事件给出无法模糊归并的两个事件名
