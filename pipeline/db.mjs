@@ -107,6 +107,11 @@ export async function initDB() {
     `ALTER TABLE articles ADD COLUMN event_norm TEXT DEFAULT ''`,
     // 上一行建完列才能建索引，所以混在这个数组里按顺序执行
     `CREATE INDEX IF NOT EXISTS idx_event_norm ON articles(event_norm)`,
+    // AI跨期事件去重（2026-08-12）：同一事件的跨天二次报道标记
+    // is_followup=1：实质新进展跟进稿（保留但强制不精选、分压到原文章之下）
+    // related_to：JSON {"id","title","date_key"}，指向同事件的先入库文章（相关阅读）
+    `ALTER TABLE articles ADD COLUMN is_followup INTEGER DEFAULT 0`,
+    `ALTER TABLE articles ADD COLUMN related_to TEXT DEFAULT ''`,
   ];
   for (const m of migrations) {
     try {
@@ -176,8 +181,8 @@ export async function insertArticles(articles) {
   let skipped = 0;
 
   const insertSQL = `INSERT OR IGNORE INTO articles 
-    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, content_html, takeaway, key_points, quote, score_detail, merged_count, event_norm)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, content_html, takeaway, key_points, quote, score_detail, merged_count, event_norm, is_followup, related_to)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   for (const article of articles) {
     const args = [
@@ -201,6 +206,8 @@ export async function insertArticles(articles) {
       article.score_detail || '', // 子分明细JSON（影响面/事实密度/新闻增量）
       article.merged_same_source || 0, // 被合并的同来源同事件稿件数
       article.event_norm || '', // 归一化事件名（供详情页识别同一事件的前情）
+      article.is_followup ? 1 : 0, // AI跨期去重标记：同事件实质新进展的跟进稿
+      article.related_to || '', // 相关阅读：指向同事件的先入库文章 {id,title,date_key}
     ];
 
     try {
@@ -328,6 +335,28 @@ export async function getArticlesByDate(dateKey) {
     return result.rows;
   } catch (err) {
     console.warn('读取当日文章失败:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 读取近N天已入库文章（含事件名/摘要，供AI跨期事件去重做内容级对照）
+ * 排除noise；按日期+分数倒序取最近limit条（对照窗口拉长到10天，
+ * 同一事件跨天二次报道正是漏网重灾区，窗口太短认不出前情）
+ */
+export async function getRecentEvents(days = 10, limit = 120) {
+  const sql = `SELECT id, date_key, title, event_norm, summary, ai_score
+    FROM articles
+    WHERE category != 'noise' AND date_key >= date('now', '-${days} days')
+    ORDER BY date_key DESC, ai_score DESC LIMIT ${limit}`;
+  try {
+    if (LOCAL_MODE) {
+      return db.prepare(sql).all();
+    }
+    const result = await db.execute(sql);
+    return result.rows;
+  } catch (err) {
+    console.warn('读取近期事件对照失败（去重跳过，不影响入库）:', err.message);
     return [];
   }
 }

@@ -397,7 +397,7 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
  */
 async function scoreBatch(items, recentBlock, batchNo, batchTotal) {
   const articleList = items.map((a, i) =>
-    `[${i + 1}] 来源:${a.source_name} | 标题:${a.title} | 摘要:${(a.content_snippet || '').slice(0, 150)}`
+    `[${i + 1}] 来源:${a.source_name} | 标题:${a.title} | 摘要:${(a.content_snippet || '').slice(0, 400)}`
   ).join('\n');
 
   const prompt = `你是一位资深AI行业分析师。请对以下AI资讯逐篇评分，并做事件聚类。
@@ -428,6 +428,12 @@ async function scoreBatch(items, recentBlock, batchNo, batchTotal) {
 - "follow"：近期事件的新进展、新回应、新数据
 - "retro"：旧事件/旧研究的回顾、重读、解读、盘点、科普、编译（标题常含"重新审视/回顾/盘点/那些年"等特征，或内容主体是数月前乃至更早的工作）
 深度观点/思想性内容（大师访谈、重要人物长文）虽属retro但有精读价值，impact与facts可正常给分
+
+时间线索硬规则（2026-08-12 事故修复：新智元把7/31发布的Seedance 2.5和8/2启动的Anthropic水印当新稿上报入库）：
+- 必须从摘要/内容中提取"核心新闻事件"（新闻由头）的发生时间再判newsness，不能只看标题和文章发布日期
+- 内容明确给出事件日期（如"从8月2日起""X月X日宣布""自X日起"），且该日期早于文章发布日2天以上 → 该文是旧闻或跟进：newsness=retro或follow，novelty不得超过11（纯回顾/复述无新进展时不得超过5）
+- "近日/日前/近期/最近"等模糊时间词：不得作为判fresh的依据；事件日期无法从内容确定时，若事件主体已出现在"近期已推送标题"中，一律follow/retro
+- 文中更早的日期若是背景铺垫、历史回顾、引用旧数据，而非本次报道的由头，不算事件发生时间（如"欧盟2024年通过AI法案"是背景，不是由头）
 
 主稿/衍生稿判定（role，每篇必填）：判据是"这条新闻如果没有另一条主新闻就不成立"：
 - "primary"：当事方自己宣布/发布/被披露的原始事件，以及首次发布自己研究成果或数据的机构（如某安全研究所发布自做的模型评测报告、某数据公司发布自有统计）

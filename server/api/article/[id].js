@@ -5,6 +5,11 @@
 const { getDB } = require('../../lib/db');
 const { parseTags, parseKeyPoints } = require('../../lib/tags');
 
+// related_to 存的是 JSON 字符串，解析失败返回 null
+function safeParseJson(s) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
@@ -23,7 +28,7 @@ module.exports = async (req, res) => {
 
     const result = await db.execute({
       sql: `SELECT id, title, original_title, source_name, source_url, category, 
-                   summary, ai_score, is_featured, published_at, collected_at, date_key, tags, key_points
+                   summary, ai_score, is_featured, is_followup, related_to, published_at, collected_at, date_key, tags, key_points
             FROM articles WHERE id = ?`,
       args: [id],
     });
@@ -43,6 +48,8 @@ module.exports = async (req, res) => {
       summary: row.summary,
       ai_score: row.ai_score,
       is_featured: !!row.is_featured,
+      is_followup: !!row.is_followup,
+      related_to: row.related_to ? safeParseJson(row.related_to) : null,
       published_at: row.published_at,
       collected_at: row.collected_at,
       date_key: row.date_key,

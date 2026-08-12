@@ -15,7 +15,9 @@ import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getArticlesByDate } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getArticlesByDate, getRecentEvents } from './db.mjs';
+import { dedupAgainstRecent } from './ai-dedup.mjs';
+import { checkFreshness } from './ai-freshness.mjs';
 import { scrapeQbitai } from './scraper-qbitai.mjs';
 import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
 import { scrapeAnthropic } from './scraper-anthropic.mjs';
@@ -339,13 +341,49 @@ async function main() {
   const reviewed = await reviewSummaries(summarized);
   console.log('');
 
+  // Step 3.6: AI时效校验（旧闻拦截）——评分阶段看不到全文里的时间线索
+  // （2026-08-12 事故：新智元把7/31的Seedance 2.5和8/2的Anthropic水印当新稿上报），
+  // 摘要生成后全文已在手，提取"新闻由头"日期，明确早于3天前的旧闻剔除不入库
+  console.log('--- Step 3.6: AI时效校验 ---');
+  const { kept: freshArticles, dropped: oldNews } = await checkFreshness(reviewed, recentTitles);
+  if (oldNews.length) {
+    console.log(`旧闻剔除: ${oldNews.length} 条（新闻由头早于3天前）`);
+    for (const o of oldNews) {
+      console.log(`  [OLD] ${o.title.slice(0, 45)}（由头 ${o.__event_date || '?'}）: ${o.__reason || ''}`);
+    }
+    console.log('');
+  }
+
   // Step 6: 写入数据库（noise分类为噪音，不入库）
   console.log('--- Step 4: 写入数据库 ---');
-  const noiseCount = reviewed.filter(a => a.category === 'noise').length;
+  const noiseCount = freshArticles.filter(a => a.category === 'noise').length;
   if (noiseCount > 0) console.log(`噪音过滤: 剔除与AI无实质关联的文章 ${noiseCount} 条`);
+  const nonNoise = freshArticles.filter(a => a.category !== 'noise');
+
+  // Step 3.75: AI跨期事件去重（内容级比对）——同一事件的跨天二次报道：
+  // 纯复述剔除不入库；实质新进展（官方确认/新细节/新数字）保留但降级
+  // （is_followup=1、强制不精选、分数压到原文章之下、记 related_to 供相关阅读）
+  // 2026-08-11 案例：量子位"黄仁勋华尔街5000亿"(739) 与 次日NVIDIA官网"金融机构AI基建"(749) 同一事件漏网
+  console.log('--- Step 3.75: AI跨期事件去重 ---');
+  const recentEvents = await getRecentEvents(10);
+  const { kept: deduped, dropped } = await dedupAgainstRecent(nonNoise, recentEvents);
+  if (dropped.length) {
+    console.log(`同事件复述剔除: ${dropped.length} 条（不单独入库）`);
+    for (const d of dropped) {
+      console.log(`  [DROP] ${d.title.slice(0, 45)}（关联 #${d.__related_id || '?'}）: ${d.__reason || ''}`);
+    }
+  }
+  const followupCount = deduped.filter(a => a.is_followup).length;
+  if (followupCount > 0) {
+    console.log(`同事件跟进降级: ${followupCount} 条（保留但不精选）`);
+    for (const f of deduped.filter(a => a.is_followup)) {
+      console.log(`  [FOLLOW] ${f.title.slice(0, 45)} -> 关联 ${f.related_to || '?'} | ${f.__reason || ''}`);
+    }
+  }
+  console.log('');
+
   // date_key 已在 filterArticles 里按发布北京日打好；此处兜底一次（降级路径/缺失时同口径补上）
-  const finalArticles = reviewed
-    .filter(a => a.category !== 'noise')
+  const finalArticles = deduped
     .map(a => ({
       ...a,
       date_key: a.date_key || beijingDayKey(a.published_at),

@@ -5,6 +5,11 @@
 const { getDB } = require('../lib/db');
 const { parseTags, tagLikePattern } = require('../lib/tags');
 
+// related_to 存的是 JSON 字符串，解析失败返回 null（不影响列表）
+function safeParseJson(s) {
+  try { return JSON.parse(s); } catch { return null; }
+}
+
 const PAGE_SIZE = 20;
 
 module.exports = async (req, res) => {
@@ -32,7 +37,7 @@ module.exports = async (req, res) => {
     const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const result = await db.execute({
-      sql: `SELECT id, title, source_name, source_url, category, ai_score, is_featured, is_breaking, published_at, tags
+      sql: `SELECT id, title, source_name, source_url, category, ai_score, is_featured, is_breaking, is_followup, related_to, published_at, tags
             FROM articles ${whereSQL}
             ORDER BY date_key DESC, ai_score DESC
             LIMIT ? OFFSET ?`,
@@ -54,6 +59,8 @@ module.exports = async (req, res) => {
       ai_score: row.ai_score,
       is_featured: !!row.is_featured,
       is_breaking: !!row.is_breaking,
+      is_followup: !!row.is_followup,
+      related_to: row.related_to ? safeParseJson(row.related_to) : null,
       published_at: row.published_at,
       tags: parseTags(row.tags),
     }));
