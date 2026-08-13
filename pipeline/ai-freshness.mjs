@@ -126,15 +126,17 @@ export async function checkFreshness(articles, recentTitles = []) {
     if (!checks) continue;
 
     // 代码侧判定（AI只负责提取，阈值判断不用AI——2026-08-13事故：AI把8/12误判为"早于3天前"）
+    // 2026-08-13二次事故：有明确日期时 in_recent_titles 仍可覆盖日期判定，导致昨日7条新闻
+    // （马化腾514亿/黄仁勋开源/GPT-5.6-Cyber等）被误杀。修复：有明确日期时只用日期判定。
     const isOldByCode = (c) => {
-      // 1) 有明确由头日期：代码算日期差
+      // 1) 有明确由头日期：代码算日期差（唯一判定依据，不再让 in_recent_titles 覆盖）
       if (c && c.event_date) {
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(c.event_date).trim());
         if (m) {
           const ev = Date.UTC(+m[1], +m[2] - 1, +m[3]);
           const now = Date.UTC(todayY, todayM - 1, todayD);
           const days = Math.round((now - ev) / 86400000);
-          if (days > OLD_DAYS) return true;
+          return days > OLD_DAYS;
         }
       }
       // 2) 无明确日期但事件主体已在近期推送标题中：跟进/重复报道，判旧
