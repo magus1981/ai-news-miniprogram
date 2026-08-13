@@ -39,6 +39,7 @@ import { scrapeShanghai } from './scraper-shanghai.mjs';
 import { scrapeZhejiang } from './scraper-zhejiang.mjs';
 import { scrapeGuangdong } from './scraper-guangdong.mjs';
 import { scrapeJiangsu } from './scraper-jiangsu.mjs';
+import { scrapeDeepseek } from './scraper-deepseek.mjs';
 
 const parser = new Parser();
 
@@ -75,6 +76,7 @@ const SCRAPERS = {
   zhejiang: scrapeZhejiang,
   guangdong: scrapeGuangdong,
   jiangsu: scrapeJiangsu,
+  deepseek: scrapeDeepseek,
 };
 
 /**

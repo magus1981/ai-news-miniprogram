@@ -444,6 +444,22 @@ export const SOURCES = [
     official: true,
     alertDays: 7,
   },
+
+  // === 国内模型厂官方发布源（2026-08-13 接入）===
+  {
+    name: 'DeepSeek 官方',
+    // DeepSeek官网首页SSR内嵌官方发布公告（"DeepSeek-V4-Pro 正式版发布..."），
+    // 重大模型发布官方首发于此，比媒体稿早几小时到几天（V4-Pro-0813深夜上线教训）。
+    // 按版本构造唯一URL，URL去重保证每版只入一次。
+    type: 'scraper',
+    scraper: 'deepseek',
+    url: 'https://www.deepseek.com/',
+    category: 'technology',
+    language: 'zh',
+    source_type: 'official',
+    official: true,
+    alertDays: 7,
+  },
 ];
 
 // 7个分类定义
