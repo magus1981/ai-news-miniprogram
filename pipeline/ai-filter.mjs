@@ -917,6 +917,10 @@ export function selectByQuota(deduped, existingCount = 0) {
  */
 export function policyQuotaPicks(byDayFull, byDaySelected, dayContexts = {}) {
   const POLICY_QUOTA_PER_DAY = 2;
+  // 保底分数下限：与数量保障地板同口径的56分（锚点口径下56-59属"边缘"上沿，是还能读的最低档）。
+  // 2026-08-13 事故：无下限时保底从全量池补入了10-44分的政策噪音稿（The Hill 美国政治花边、
+  // 诉讼稿等，最终分类还是 opinion/company），保底沦为垃圾兜底。低于下限宁可当日政策稿不足2条。
+  const POLICY_MIN_SCORE = 56;
   const DAY_CAP = 20;
   const picks = [];
   for (const [dk, list] of byDayFull) {
@@ -932,7 +936,8 @@ export function policyQuotaPicks(byDayFull, byDaySelected, dayContexts = {}) {
     const selectedUrls = new Set(already.map(a => a.source_url).filter(Boolean));
     const promoted = [...list]
       .sort((a, b) => b.ai_score - a.ai_score)
-      .filter(a => a.category === 'policy' && !(a.source_url && selectedUrls.has(a.source_url)))
+      .filter(a => a.category === 'policy' && a.ai_score >= POLICY_MIN_SCORE
+        && !(a.source_url && selectedUrls.has(a.source_url)))
       .slice(0, take);
     if (promoted.length) {
       console.log(`政策保底: ${dk} 补入 ${promoted.length} 条政策稿（原政策入选 ${policySelected} 条，从当日全量去重稿件补入）`);
