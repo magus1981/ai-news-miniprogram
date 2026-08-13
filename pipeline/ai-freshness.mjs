@@ -55,29 +55,32 @@ function buildPrompt(articles, recentTitles) {
     ? `\n【近期已推送标题】（近10天已入库，供"模糊时间"场景旁证）：\n${recentTitles.slice(0, 80).map(t => `- ${t}`).join('\n')}\n`
     : '';
 
-  return `你是AI资讯时效审查员。请判断每篇文章的"核心新闻事件"（新闻由头）发生的时间，判定它是不是旧闻。
+  // 只让AI做"提取"不做"判定"：日期算术（X月X日距今几天）AI不可靠（2026-08-13事故：
+  // AI把8/12发布误判成"早于3天前"，误杀马化腾514亿/黄仁勋开源/GPT-5.6-Cyber等昨日新闻），
+  // 阈值判断一律由代码用 Date 计算（见 checkFreshness 的 isOldByCode）。
+  return `你是AI资讯时效审查员。请从每篇文章中提取"核心新闻事件"（新闻由头）的发生日期，并判断事件主体是否出现在近期已推送标题中。
 
-判定方法：
+提取方法：
 - 新闻由头 = 这篇文章要报道的核心事件本身发生的时间（发布/融资/政策/事故等动作的发生日）
 - 区分背景引用：文中更早的日期如果是背景铺垫、历史回顾、引用旧数据，不是本次报道的由头（例："欧盟2024年通过AI法案，8月10日开出首张罚单"，由头是8月10日不是2024年）
-- 优先采信内容中的具体日期（"从X月X日起""X月X日宣布""X月X日发布""自X日起"）；全文/摘要都只有"近日/日前/近期/最近/上周"等模糊词时：
-  - 若该文的事件主体（产品/公司/事件名）出现在【近期已推送标题】中 → 判 old（跟进/重复报道，说明事件早已发生并推送过）
-  - 否则判 unknown（无法确定，放行）
-- 例：标题"Anthropic为Claude添加隐形水印"、文中"从8月2日起…"→由头是8月2日（旧闻）
-- 例：标题"字节Seedance 2.5发布"、文中"近日发布了…"且近期标题无此产品→判unknown（放行）
+- 优先采信内容中的具体日期（"从X月X日起""X月X日宣布""X月X日发布""自X日起""昨日""昨天"）；全文/摘要都只有"近日/日前/近期/最近/上周"等模糊词时给 null
+- 例：标题"Anthropic为Claude添加隐形水印"、文中"从8月2日起…"→event_date=2026-08-02
+- 例：标题"字节Seedance 2.5发布"、文中"近日发布了…"→event_date=null
+- "昨日/昨天"按今天日期推算具体日期；"本周/上周"等粗粒度时间也给出估计日期或null（拿不准给null）
+- in_recent_titles：判断该文的事件主体（产品/模型/公司/事件名）是否出现在【近期已推送标题】中（近10天已推送过同一事件/同一产品）——仅当你能明确匹配时才填true，否则false
 
 【待审查文章】：
 ${list}
 
 对每篇输出：
-- event_date：由头日期，格式YYYY-MM-DD；无法确定给 null
-- verdict："old"（由头明确早于${OLD_DAYS}天前，或模糊时间但事件主体已在近期推送标题中）| "fresh"（由头在${OLD_DAYS}天内或unknown）
-- reason：一句话判断依据
+- event_date：由头日期，格式YYYY-MM-DD；无法确定给 null（宁缺毋滥，拿不准就null）
+- in_recent_titles：true 或 false
+- reason：一句话说明依据
 
 今天日期：${new Date().toISOString().slice(0, 10)}
 ${recentBlock}
 请严格按以下JSON格式返回，不要输出其他内容：
-{"checks": [{"index": 1, "event_date": "2026-08-02", "verdict": "old", "reason": "..."}]}
+{"checks": [{"index": 1, "event_date": "2026-08-02", "in_recent_titles": false, "reason": "..."}]}
 
 请为每一篇都返回判定（不要省略任何index）。`;
 }
@@ -122,17 +125,40 @@ export async function checkFreshness(articles, recentTitles = []) {
     }
     if (!checks) continue;
 
+    // 代码侧判定（AI只负责提取，阈值判断不用AI——2026-08-13事故：AI把8/12误判为"早于3天前"）
+    const isOldByCode = (c) => {
+      // 1) 有明确由头日期：代码算日期差
+      if (c && c.event_date) {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(c.event_date).trim());
+        if (m) {
+          const ev = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+          const now = Date.UTC(todayY, todayM - 1, todayD);
+          const days = Math.round((now - ev) / 86400000);
+          if (days > OLD_DAYS) return true;
+        }
+      }
+      // 2) 无明确日期但事件主体已在近期推送标题中：跟进/重复报道，判旧
+      if (c && c.in_recent_titles === true) return true;
+      return false;
+    };
+
     const byIndex = new Map(checks.map(c => [Number(c.index), c]));
     batch.forEach((a, idx) => {
       const c = byIndex.get(idx + 1);
-      // 未返回/异常/verdict非old：放行（fail-open）
-      if (!c || c.verdict !== 'old') { kept.push(a); return; }
+      // 未返回/异常/不满足旧闻条件：放行（fail-open）
+      if (!c || !isOldByCode(c)) { kept.push(a); return; }
       dropped.push({ ...a, __event_date: c.event_date || '', __reason: c.reason || '' });
     });
   }
 
   return { kept, dropped };
 }
+
+// 今天日期（代码侧判定用，避免与AI口径不一致）
+const today = new Date();
+const todayY = today.getFullYear();
+const todayM = today.getMonth() + 1;
+const todayD = today.getDate();
 
 // 独立运行调试：node ai-freshness.mjs <文章JSON文件>
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
