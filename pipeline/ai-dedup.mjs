@@ -18,6 +18,7 @@
  * 失败降级：AI调用失败/返回异常时全部放行（安全网不是闸门，不阻塞管线）。
  */
 import { pathToFileURL } from 'url';
+import { canonicalizeName } from './tag-canonical.mjs';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -75,6 +76,7 @@ ${candLines}
 
 关键约束：
 - 同一主体的不同事件必须判new，严禁因主体/公司相同就判同事件（如"英伟达发布新GPU"与"英伟达投资电厂"是两件事；"公司发布A模型"与"公司发布B模型"是两件事）
+- **不同主体的发布/模型/融资/合作绝不判 same_event 或 followup**：related_id 所指事件的主体（公司/机构）必须与候选文章的主体是同一家（如"DeepSeek发布V4 Pro"绝不可能与"SpaceXAI发布Grok 4.6"是同事件）——只有同一公司/机构的同一事件才可能有关联
 - 官方一手稿vs媒体转载：即使内容高度重合，官方博客/官方公告作为一手来源若补充了媒体稿没有的细节（机构名单、金额口径、时间表），属于followup而非same_event
 - 拿不准时倾向new（宁可放过，不可误杀——误杀会漏掉真实新进展，误放只是多一条，还有配额外的展示控制）
 - same_event/followup 必须给出 related_id（近期文章的id）；new 的 related_id 填 null
@@ -134,16 +136,33 @@ export async function dedupAgainstRecent(candidates, recentEvents) {
       // 未返回判定/格式异常：按 new 放行（fail-open）
       if (!v || v.verdict === 'new') { kept.push(c); return; }
 
+      // 公司重合门槛（2026-08-13事故修复：AI把"DeepSeek V4 Pro发布"误判为
+      // "SpaceXAI Grok 4.6"的跟进稿，跨公司硬扯同事件，重大发布被砍到30分）。
+      // 代码侧校验候选与关联文章的公司是否有交集：无交集→AI判定作废、按new放行
+      // （只拦截不撮合，宁可放过重复也不误杀——用户明确的取舍方向）。
+      const ref = refById.get(v.related_id);
+      const overlap = ref ? companyOverlap(c.tags, ref.tags) : null;
+      if (overlap === false) {
+        console.warn(`  [GATE] 跨公司误判拦截: "${c.title.slice(0, 30)}" 与 #${ref.id} "${ref.title.slice(0, 25)}" 无共同公司，AI判${v.verdict}被否决→按new`);
+        kept.push(c);
+        return;
+      }
+
       if (v.verdict === 'same_event') {
         dropped.push({ ...c, __related_id: v.related_id, __reason: v.reason || '' });
         return;
       }
 
       // followup：降级保留
-      const ref = refById.get(v.related_id);
       if (ref && typeof ref.ai_score === 'number' && typeof c.ai_score === 'number') {
         // 压到原文章之下至少15分：绝不可能反过来压过原稿进精选
+        const before = c.ai_score;
         c.ai_score = Math.min(c.ai_score, ref.ai_score - 15);
+        // 同步评分明细（透明化：列表分与明细分不一致会掩盖降级链，见2026-08-13事故）
+        try {
+          const d = JSON.parse(c.score_detail || '{}');
+          c.score_detail = JSON.stringify({ ...d, score: c.ai_score, demoted_by_dedup: { from: before, ref_id: ref.id } });
+        } catch { /* 明细非JSON时跳过 */ }
       }
       c.is_followup = 1;
       c.is_featured = 0; // 跟进稿强制不精选
@@ -157,6 +176,32 @@ export async function dedupAgainstRecent(candidates, recentEvents) {
   }
 
   return { kept, dropped };
+}
+
+/**
+ * 公司重合门槛：候选与关联文章的规范化公司是否有交集
+ * @param {string|Object} candTags - 候选文章 tags（JSON字符串或对象）
+ * @param {string|Object} refTags - 关联文章 tags
+ * @returns {boolean|null} true=有交集(放行AI判定) / false=无交集(否决AI判定) / null=任一方无公司(无法校验,放行)
+ */
+function companyOverlap(candTags, refTags) {
+  const parse = (t) => {
+    try {
+      const obj = typeof t === 'string' ? JSON.parse(t || '{}') : (t || {});
+      return Array.isArray(obj.companies) ? obj.companies.map(c => String(c).trim()).filter(Boolean) : [];
+    } catch { return []; }
+  };
+  const cand = parse(candTags);
+  const ref = parse(refTags);
+  if (!cand.length || !ref.length) return null; // 任一方无公司：无法校验，不拦截
+
+  // 原始名交集
+  const candSet = new Set(cand);
+  if (ref.some(c => candSet.has(c))) return true;
+  // 规范化名交集（英伟达 vs NVIDIA、OpenAI vs 开放AI）
+  const canon = names => names.map(n => canonicalizeName('company', n) || n);
+  const candCanon = new Set(canon(cand));
+  return canon(ref).some(c => candCanon.has(c));
 }
 
 // 独立运行调试：node ai-dedup.mjs <候选JSON文件> <近期JSON文件>

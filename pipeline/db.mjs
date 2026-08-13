@@ -345,7 +345,7 @@ export async function getArticlesByDate(dateKey) {
  * 同一事件跨天二次报道正是漏网重灾区，窗口太短认不出前情）
  */
 export async function getRecentEvents(days = 10, limit = 120) {
-  const sql = `SELECT id, date_key, title, event_norm, summary, ai_score
+  const sql = `SELECT id, date_key, title, event_norm, summary, ai_score, tags
     FROM articles
     WHERE category != 'noise' AND date_key >= date('now', '-${days} days')
     ORDER BY date_key DESC, ai_score DESC LIMIT ${limit}`;
