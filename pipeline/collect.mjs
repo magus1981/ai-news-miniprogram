@@ -293,7 +293,27 @@ async function main() {
   const existingUrls = await getExistingUrls(batchUnique.map(a => a.source_url));
   const uniqueArticles = batchUnique.filter(a => !existingUrls.has(a.source_url));
   const oldDropped = batchUnique.length - uniqueArticles.length;
-  console.log(`去重后: ${uniqueArticles.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}\n`);
+  console.log(`去重后: ${uniqueArticles.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}`);
+
+  // 候选池按发布日分布（2026-08-14 排查"当日稿少"时补上的观测点：
+  // 只看总数分不清"当天没新闻"还是"当天稿被筛选挤掉"）
+  const dayDist = new Map();
+  for (const a of uniqueArticles) {
+    const dk = beijingDayKey(a.published_at);
+    dayDist.set(dk, (dayDist.get(dk) || 0) + 1);
+  }
+  console.log(`候选池按发布日: ${[...dayDist.entries()].sort().map(([dk, n]) => `${dk}:${n}`).join(' ')}\n`);
+
+  // 仅采集诊断模式：只看候选池分布不跑AI（本地排查用，不产生费用不入库）
+  if (args.includes('--collect-only')) {
+    console.log('--- collect-only 诊断模式：跳过AI筛选 ---');
+    const titles = uniqueArticles
+      .filter(a => beijingDayKey(a.published_at) === beijingDayKey(new Date().toISOString()))
+      .map(a => `[${a.source_name}] ${a.title}`);
+    console.log(`当日候选标题(${titles.length}):`);
+    for (const t of titles) console.log('  ' + t);
+    return;
+  }
 
   if (uniqueArticles.length === 0) {
     console.log('无新文章可筛选，退出');

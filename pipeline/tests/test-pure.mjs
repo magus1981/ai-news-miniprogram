@@ -12,7 +12,7 @@ import { applyTagInvariants } from '../classify-rules.mjs';
 import {
   parseDupIndexes, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
-  selectByQuota, policyQuotaPicks, beijingDayKey,
+  selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
@@ -431,6 +431,42 @@ T('政策保护通道: 非官方源的政策文章不享保送', () => {
   const list = mkA([{ ai_score: 78, source_type: 'media', category: 'policy' }, 90]);
   const sel = selectByQuota(list, 20);
   return sel.length === 1 && sel[0].ai_score === 90;
+});
+
+// ── 精评候选按日发布日分配（2026-08-14 事故：全局Top-N被存量稿占满，当日320条新稿只选出1条）──
+// 固定发布日（UTC时刻，北京日确定），不依赖测试运行时的真实时钟
+const mkDay = (scores, iso) => scores.map(s => ({ ai_score: s, published_at: iso }));
+const YEST = '2026-08-13T02:00:00.000Z'; // 北京 2026-08-13 10:00
+const TODAY = '2026-08-14T02:00:00.000Z'; // 北京 2026-08-14 10:00
+T('精评候选: 已满日存量稿不得占满名额，当日稿保底进精评（事故复现）', () => {
+  // 旧全局Top-6 = 昨天6条存量稿（粗评高分但昨天配额已满永远选不上），当日1条都进不了精评
+  const list = [...mkDay([89, 84, 80, 79, 78, 76], YEST), ...mkDay([75, 74, 73, 72, 71, 70], TODAY)];
+  const picked = pickRefineCandidates(list, { '2026-08-13': { existingCount: 20 }, '2026-08-14': { existingCount: 5 } }, 6);
+  const todayN = picked.filter(a => a.published_at === TODAY).length;
+  return picked.length === 6 && todayN >= 3;
+});
+T('精评候选: 已满日只放>=80突发候选且至多2条', () => {
+  const list = mkDay([89, 84, 80, 79, 78], YEST);
+  const picked = pickRefineCandidates(list, { '2026-08-13': { existingCount: 20 } }, 30);
+  return picked.map(a => a.ai_score).join(',') === '89,84';
+});
+T('精评候选: 全部日已满时不做全局补齐（存量稿不再白耗精评名额）', () => {
+  const list = [...mkDay([90, 85, 70], YEST), ...mkDay([66, 64], TODAY)];
+  const picked = pickRefineCandidates(list, { '2026-08-13': { existingCount: 20 }, '2026-08-14': { existingCount: 20 } }, 30);
+  return picked.map(a => a.ai_score).join(',') === '90,85';
+});
+T('精评候选: 未满日多时各日均分保底名额，剩余名额全局补齐', () => {
+  const d1 = '2026-08-12T02:00:00.000Z';
+  // 昨天已满且无>=80突发候选；今天与前天未满各保底 floor(9/2)=4 条，剩1席由全局补齐捞回昨天79分稿
+  const list = [...mkDay([79, 78, 77, 76], YEST), ...mkDay([75, 74, 73, 72, 71], TODAY), ...mkDay([70, 69, 68, 67], d1)];
+  const picked = pickRefineCandidates(list, { '2026-08-13': { existingCount: 20 }, '2026-08-14': { existingCount: 8 }, '2026-08-12': { existingCount: 0 } }, 9);
+  const perDay = dk => picked.filter(a => a.published_at === dk).length;
+  return picked.length === 9 && perDay(TODAY) === 4 && perDay(d1) === 4 && perDay(YEST) === 1;
+});
+T('精评候选: 候选不足limit时不报错且全部入选', () => {
+  const list = mkDay([88, 76], TODAY);
+  const picked = pickRefineCandidates(list, {}, 30);
+  return picked.length === 2;
 });
 
 // ── 政策保底配额（2026-08-12 修复：从"当日全量去重稿件"补入，而非精评Top-30候选池）──

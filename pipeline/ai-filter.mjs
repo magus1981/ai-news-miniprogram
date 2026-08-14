@@ -287,10 +287,13 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
       console.log(`标题近重复: 剔除字面高度重合的同事件报道 ${nearDup.dropped} 条`);
     }
     
-    // 阶段2 精评：对去重后的前REFINE_CANDIDATES条做一次统一调用重定名次。
+    // 阶段2 精评：对候选做一次统一调用重定名次。
     // 分批粗排的致命伤是批间不可比（每批各一把尺，却跨批取Top几条进精选），
     // 一次全局精评把标尺统一；模型只出档位+排名，分数由代码按 REFINE_TIERS 合成（防同分批发）。
-    const candidates = nearDup.list.slice(0, REFINE_CANDIDATES);
+    // 候选按发布日配额分配而非全局Top-N（2026-08-14 事故修复，见 pickRefineCandidates）：
+    // 全局Top-N会被"粗评高分但永远选不上的存量稿"（配额已满日的落选稿、精评分低于门槛的稿）
+    // 每轮重复占满，当日新稿连被精评的机会都没有——当日320条候选只选出1条的根因
+    const candidates = pickRefineCandidates(nearDup.list, dayContexts, REFINE_CANDIDATES);
     const refined = await refineScores(candidates, recentBlock);
     if (!refined) {
       console.warn('  [WARN] 全局精评失败，本轮回退用分批粗排分：批间尺度不一致且分数偏紧缩，精选可信度下降');
@@ -322,6 +325,9 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
       if (!byDayCand.has(a.date_key)) byDayCand.set(a.date_key, []);
       byDayCand.get(a.date_key).push(a); // candidates 已按分降序，分桶后各日仍保持降序
     }
+    // 精评候选按发布日分布（2026-08-14 排查"当日稿少"：全局Top-30候选若被前几天存量稿占满，
+    // 当日新稿连被精评的机会都没有；这条日志直接暴露挤占）
+    console.log(`精评候选按发布日: ${[...byDayCand.entries()].sort().map(([dk, l]) => `${dk}:${l.length}`).join(' ')}`);
     let selected = [];
     for (const [dk, list] of byDayCand) {
       const ctx = dayContexts[dk] || {};
@@ -858,6 +864,57 @@ export function mergeIntoKept(kept, dropped) {
     });
   }
   return kept;
+}
+
+/**
+ * 精评候选选取（纯函数，供测试）：按发布日配额分配候选名额，替代旧的全局Top-N切片。
+ * 2026-08-14 事故根因：全局Top-30被"粗评高分但永远选不上"的存量稿每轮重复占满——
+ * 配额已满日的落选稿（selectByQuota拒掉但不入库，URL去重拦不住）、精评分低于当日门槛的稿，
+ * 下一轮原样回来再占Top-30，当日320条新稿连被精评的机会都没有，全天只选出1条。
+ * 分配规则：
+ * - 配额已满的日：只放粗评>=80的候选进精评（突发通道要求精评>=85，粗评留5分缓冲），至多2条
+ * - 未满的日：每日保底基础名额（当日新稿永远有被精评的机会）
+ * - 剩余名额按粗评分全局补齐（保留粗评捞回好文章的旧行为；保底名额通常已占满，
+ *   这只在候选不足或某日稿件少于保底数时生效）
+ * @param {Array} list - 事件/标题去重后的文章（粗评分降序）
+ * @param {Object<string,{existingCount?:number}>} dayContexts - 各发布日已入库数
+ * @param {number} limit - 精评候选总数上限
+ */
+export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
+  const DAY_CAP = 20;
+  const byDay = new Map();
+  for (const a of list) {
+    const dk = beijingDayKey(a.published_at);
+    if (!byDay.has(dk)) byDay.set(dk, []);
+    byDay.get(dk).push(a); // list 已按粗评分降序，分桶后各日仍保持降序
+  }
+  const picked = new Set();
+  const result = [];
+  const push = a => { picked.add(a); result.push(a); };
+
+  const openDays = [];
+  for (const [dk, items] of byDay) {
+    const existing = (dayContexts[dk] || {}).existingCount || 0;
+    if (existing >= DAY_CAP) {
+      for (const a of items.filter(x => x.ai_score >= 80).slice(0, 2)) push(a);
+    } else {
+      openDays.push(items);
+    }
+  }
+  if (openDays.length) {
+    const base = Math.max(3, Math.floor((limit - result.length) / openDays.length));
+    for (const items of openDays) {
+      for (const a of items.slice(0, base)) {
+        if (result.length >= limit) break;
+        if (!picked.has(a)) push(a);
+      }
+    }
+    for (const a of list) {
+      if (result.length >= limit) break;
+      if (!picked.has(a)) push(a);
+    }
+  }
+  return result.sort((x, y) => y.ai_score - x.ai_score);
 }
 
 /**
