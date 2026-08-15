@@ -16,6 +16,8 @@ import {
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
+import { isRoundupCandidate, buildSubEvents, parseSplitResponse } from '../roundup-split.mjs';
+import { pickMissedCandidates, parseAuditResponse } from '../miss-audit.mjs';
 
 const CASES = [];
 const T = (desc, fn) => CASES.push([desc, fn]);
@@ -546,6 +548,65 @@ T('跨日精选: 昨天增量精选走 5-已精选 预算且守80分线', () => 
 T('跨日精选: 昨天精选预算已满(existingFeatured=5)一条都不再加', () => {
   return markFeatured(mkA([92, 88]), { existingCount: 18, existingFeatured: 5 }) === 0;
 });
+
+// ── 拼盘拆条（2026-08-15事故：极客早知道整篇被杀导致2条80+分新闻漏报） ──
+const longSnippet = '正文段落。'.repeat(60); // 240字，超过200字材料下限
+const roundupParent = {
+  title: '智谱发布 GLM-5.3，编程能力更强；传苹果训练国内专用 AI 模型；微信新功能 | 极客早知道',
+  source_name: '极客公园', source_url: 'http://www.geekpark.net/news/368849',
+  source_type: 'media', content_snippet: longSnippet, published_at: '2026-08-15T00:52:38.000Z',
+};
+T('拼盘识别: 分号并列+栏目名命中', () => isRoundupCandidate(roundupParent) === true);
+T('拼盘识别: 单事件短标题不拆', () => isRoundupCandidate({ ...roundupParent, title: 'OpenAI发布GPT-6正式版' }) === false);
+T('拼盘识别: 官方源不拆', () => isRoundupCandidate({ ...roundupParent, source_type: 'official' }) === false);
+T('拼盘识别: 材料不足不拆(防模型脑补)', () => isRoundupCandidate({ ...roundupParent, content_snippet: '太短' }) === false);
+T('拼盘识别: 栏目关键词单独命中', () => isRoundupCandidate({ ...roundupParent, title: 'AI行业早报：今日值得关注的动态' }) === true);
+T('拼盘识别: 分号但标题太短不拆', () => isRoundupCandidate({ ...roundupParent, title: '快讯；速看' }) === false);
+
+const subEvents = buildSubEvents(roundupParent, [
+  { title: '传苹果为中国市场训练专属大模型', segment: '据三位知情人士透露，苹果公司已经专门为中国市场训练了一个大型语言模型，此前该公司曾计划主要依赖第三方模型。' },
+  { title: 'SpaceX完成收购Cursor', segment: '8月14日，SpaceX提交监管文件称，公司与代码编辑工具Cursor的合并交易已完成，对应Cursor隐含股权价值600亿美元。' },
+]);
+T('拆条构造: 2事件得2子事件', () => subEvents.length === 2);
+T('拆条构造: 子事件URL带#ev序号', () => subEvents[0].source_url.endsWith('#ev-1') && subEvents[1].source_url.endsWith('#ev-2'));
+T('拆条构造: 标记from_roundup且清空全文(防摘要串台)', () => subEvents.every(s => s.from_roundup === true && s.content === ''));
+T('拆条构造: original_title留出处拼盘名', () => subEvents[0].original_title === roundupParent.title);
+T('拆条构造: 标题太短/正文太薄的丢弃', () => {
+  const r = buildSubEvents(roundupParent, [
+    { title: '太短', segment: 'x'.repeat(50) },
+    { title: '标题合格但正文不合格的事件', segment: '薄' },
+  ]);
+  return r.length === 0;
+});
+T('拆条构造: 超过6条截断', () => {
+  const many = Array.from({ length: 8 }, (_, i) => ({ title: `事件标题编号${i}不少于八字`, segment: '段'.repeat(50) }));
+  return buildSubEvents(roundupParent, many).length === 6;
+});
+T('拆条构造: 非数组输入返回空', () => buildSubEvents(roundupParent, null).length === 0);
+
+T('拆条解析: 正常JSON', () => parseSplitResponse('{"events":[{"title":"a","segment":"b"}]}').length === 1);
+T('拆条解析: 带markdown围栏', () => parseSplitResponse('```json\n{"events":[]}\n```').length === 0);
+T('拆条解析: 前后带废话', () => parseSplitResponse('好的，以下是结果：{"events":[{"title":"a","segment":"b"}]} 以上').length === 1);
+T('拆条解析: 垃圾输入返回null', () => parseSplitResponse('完全不是JSON') === null);
+T('拆条解析: events非数组返回null', () => parseSplitResponse('{"events":"not-array"}') === null);
+
+// ── 漏报对账（2026-08-15事故：系统只记入选不记被杀，漏报不可见） ──
+const now = Date.parse('2026-08-15T08:00:00.000Z');
+const freshPool = [
+  { title: '新稿A', source_url: 'u1', published_at: '2026-08-15T01:00:00.000Z', source_name: 'X' },
+  { title: '新稿B', source_url: 'u2', published_at: '2026-08-14T20:00:00.000Z', source_name: 'Y' },
+  { title: '旧稿C(超36h)', source_url: 'u3', published_at: '2026-08-13T10:00:00.000Z', source_name: 'Z' },
+];
+T('对账候选: 已入选的排除', () => pickMissedCandidates(freshPool, [{ source_url: 'u1' }], now).map(a => a.title).join(',') === '新稿B');
+T('对账候选: 超36小时旧候选不算今日漏报', () => !pickMissedCandidates(freshPool, [], now).some(a => a.source_url === 'u3'));
+T('对账候选: 按发布时间倒序', () => {
+  const r = pickMissedCandidates(freshPool, [], now);
+  return r[0].source_url === 'u1' && r[1].source_url === 'u2';
+});
+T('对账候选: 空池返回空', () => pickMissedCandidates([], [], now).length === 0);
+T('对账解析: 正常JSON', () => parseAuditResponse('{"misses":[{"index":2,"reason":"重大并购"}]}')[0].index === 2);
+T('对账解析: 空misses', () => parseAuditResponse('{"misses":[]}').length === 0);
+T('对账解析: 垃圾输入返回null', () => parseAuditResponse('not json at all') === null);
 
 // ── 执行 ──
 let pass = 0;

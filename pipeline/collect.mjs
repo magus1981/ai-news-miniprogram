@@ -18,6 +18,8 @@ import { generateDailyIntro } from './ai-intro.mjs';
 import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getArticlesByDate, getRecentEvents } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
+import { splitRoundups } from './roundup-split.mjs';
+import { auditMisses } from './miss-audit.mjs';
 import { scrapeQbitai } from './scraper-qbitai.mjs';
 import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
 import { scrapeAnthropic } from './scraper-anthropic.mjs';
@@ -295,10 +297,23 @@ async function main() {
   const oldDropped = batchUnique.length - uniqueArticles.length;
   console.log(`去重后: ${uniqueArticles.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}`);
 
+  // Step 3.55: 拼盘拆条——"早知道/早报"类合集若被整体评分/去重误杀，藏在其中的
+  // 大新闻会被连坐（2026-08-15事故：极客早知道因头条事件昨日已精选被整篇杀掉，
+  // 苹果中国自研模型/SpaceX收购Cursor两条80+分新闻漏报）。拆成独立子事件各走评分。
+  // 拆条失败/拆不出时保留原篇，行为与之前一致。
+  const splitResult = await splitRoundups(uniqueArticles);
+  let candidateArticles = splitResult.list;
+  if (splitResult.stats.split > 0) {
+    // 子事件的 #ev-N URL 可能已在库（前轮已拆过同一拼盘），再过一遍URL去重
+    const existSub = await getExistingUrls(candidateArticles.filter(a => a.from_roundup).map(a => a.source_url));
+    if (existSub.size) candidateArticles = candidateArticles.filter(a => !existSub.has(a.source_url));
+    console.log(`拼盘拆条: 检出 ${splitResult.stats.roundups} 篇拼盘，拆出 ${splitResult.stats.split} 个子事件，候选池 ${candidateArticles.length} 条`);
+  }
+
   // 候选池按发布日分布（2026-08-14 排查"当日稿少"时补上的观测点：
   // 只看总数分不清"当天没新闻"还是"当天稿被筛选挤掉"）
   const dayDist = new Map();
-  for (const a of uniqueArticles) {
+  for (const a of candidateArticles) {
     const dk = beijingDayKey(a.published_at);
     dayDist.set(dk, (dayDist.get(dk) || 0) + 1);
   }
@@ -307,7 +322,7 @@ async function main() {
   // 仅采集诊断模式：只看候选池分布不跑AI（本地排查用，不产生费用不入库）
   if (args.includes('--collect-only')) {
     console.log('--- collect-only 诊断模式：跳过AI筛选 ---');
-    const titles = uniqueArticles
+    const titles = candidateArticles
       .filter(a => beijingDayKey(a.published_at) === beijingDayKey(new Date().toISOString()))
       .map(a => `[${a.source_name}] ${a.title}`);
     console.log(`当日候选标题(${titles.length}):`);
@@ -315,7 +330,7 @@ async function main() {
     return;
   }
 
-  if (uniqueArticles.length === 0) {
+  if (candidateArticles.length === 0) {
     console.log('无新文章可筛选，退出');
     return;
   }
@@ -324,7 +339,7 @@ async function main() {
   // 归日按“发布北京日”：本轮文章可能跨多个发布日（采集窗口72小时），
   // 逐日载入该日已入库数/精选数/精选最低分，供各日独立结算“每日10-20条/精选5条”。
   console.log('--- Step 2: AI筛选 ---');
-  const affectedDays = [...new Set(uniqueArticles.map(a => beijingDayKey(a.published_at)))];
+  const affectedDays = [...new Set(candidateArticles.map(a => beijingDayKey(a.published_at)))];
   const todayBJ = beijingDayKey(new Date().toISOString());
   if (!affectedDays.includes(todayBJ)) affectedDays.push(todayBJ); // 无日期兜底稿归今天，确保有其上下文
   const dayContexts = {};
@@ -341,17 +356,23 @@ async function main() {
   }
   const recentTitles = await getRecentTitles(RECENT_TITLE_DAYS);
   if (recentTitles.length) console.log(`旧闻对照: 载入近${RECENT_TITLE_DAYS}天已入库标题 ${recentTitles.length} 条`);
-  const selected = await filterArticles(uniqueArticles, recentTitles, dayContexts);
+  const selected = await filterArticles(candidateArticles, recentTitles, dayContexts);
   if (selected.length === 0) {
     console.log('AI筛选后无达标文章（或各日配额已满），退出');
+    // 零入选正是最该对账的时刻：全部被杀掉时，重大新闻可能混在其中（2026-08-15事故）
+    await auditMisses({ pool: candidateArticles, admitted: [], dayArticles: await getArticlesByDate(todayBJ) });
     return;
   }
   console.log('');
 
   // Step 4.5: 全文抓取（仅对入选文章，约20条）——摘要基于全文而非RSS片段，
-  // 从根源上减少"看标题脑补"型幻觉；原文同时入库存档供后续事实二审/重生成
+  // 从根源上减少"看标题脑补"型幻觉；原文同时入库存档供后续事实二审/重生成。
+  // 拼盘子事件（from_roundup）跳过全文抓取：父篇全文是整篇合集，抓回来会让摘要
+  // 把别的串台事件也写进去；子事件已自带逐字摘录的事件段落作素材。
   console.log('--- Step 2.5: 全文抓取 ---');
-  await fetchFullContents(selected);
+  const roundupSubs = selected.filter(a => a.from_roundup);
+  if (roundupSubs.length) console.log(`  ${roundupSubs.length} 条拼盘子事件跳过全文抓取（使用拆条摘录素材）`);
+  await fetchFullContents(selected.filter(a => !a.from_roundup));
   console.log('');
   console.log('--- Step 3: AI总结生成 ---');
   const summarized = await generateSummaries(selected);
@@ -432,6 +453,12 @@ async function main() {
     const dc = await getDayCounts(d);
     console.log(`  ${d} 累计: ${dc.count} 条（精选 ${dc.featured} 条）`);
   }
+
+  // Step 8: 漏报对账——系统只记录"入选了什么"，不记录"杀掉了什么"，漏报就无法被
+  // 看见（2026-08-15事故：两条80+分新闻被杀一整天无人知晓）。每轮末把未入选的
+  // 新鲜候选与当日已入选清单做一次主编级对账，疑似重大漏报打印进日志供人工复查。
+  console.log('--- Step 6: 漏报对账 ---');
+  await auditMisses({ pool: candidateArticles, admitted: finalArticles, dayArticles: await getArticlesByDate(todayBJ) });
 }
 
 // 仅当作为脚本直接运行时才执行主流程（便于被测试脚本import）
