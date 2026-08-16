@@ -329,9 +329,12 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
     // 当日新稿连被精评的机会都没有；这条日志直接暴露挤占）
     console.log(`精评候选按发布日: ${[...byDayCand.entries()].sort().map(([dk, l]) => `${dk}:${l.length}`).join(' ')}`);
     let selected = [];
+    // 当前北京日：传给 selectByQuota 启用晚间窗口保留（仅"当天"给晚窗口稿留名额，
+    // 历史日补采不受影响——美国白天发的稿归入北京当日，最容易被国内源白天稿挤掉）
+    const todayKey = beijingDayKey(new Date(now).toISOString());
     for (const [dk, list] of byDayCand) {
       const ctx = dayContexts[dk] || {};
-      selected.push(...selectByQuota(list, ctx.existingCount || 0));
+      selected.push(...selectByQuota(list, ctx.existingCount || 0, { dk, todayKey }));
     }
     selected.sort((a, b) => b.ai_score - a.ai_score);
 
@@ -933,10 +936,17 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
  *   永远竞争不过当日新闻（2026-08-10事故：网信办08-07征求意见稿在08-09
  *   因当日只剩1个名额被挤掉）。>=70分的官方政策条目保送（每轮至多2条），
  *   不占日配额；量级每周仅几条，不会灌爆日报
+ * - 晚间窗口保留名额（2026-08-16漏报修复）：国内源白天集中发稿，下午就把当日配额
+ *   灌到18-19条；海外重磅稿（美国白天=北京晚间，发布时间在北京16:00之后）到场时
+ *   只剩1-2个名额且门槛抬到70分，被系统性挤出（连漏FT价格战、英伟达缩减OpenAI投资
+ *   两条85分级新闻）。当日尚在进行时（todayKey命中），为北京16:00后发布的文章
+ *   保留 LATE_RESERVE 个名额：早窗口文章最多用掉 capRemaining-2 个，晚窗口稿达线即入；
+ *   本轮没有达线晚窗口稿则名额留空等后续轮次。该日过去后保留自动失效，补采不受影响。
  * @param {Array} deduped - 事件去重后的文章（分数降序）
  * @param {number} existingCount - 当日已入库文章数
+ * @param {Object} [opts] - { dk: 该桶发布日YYYY-MM-DD, todayKey: 当前北京日 }，启用晚间保留需两者都提供
  */
-export function selectByQuota(deduped, existingCount = 0) {
+export function selectByQuota(deduped, existingCount = 0, opts = {}) {
   const isProtectedPolicy = a => a.source_type === 'official' && a.category === 'policy' && a.ai_score >= 70;
   const protectedPicks = deduped.filter(isProtectedPolicy).slice(0, 2);
   const pool = protectedPicks.length ? deduped.filter(a => !protectedPicks.includes(a)) : deduped;
@@ -949,8 +959,29 @@ export function selectByQuota(deduped, existingCount = 0) {
     return [...protectedPicks, ...breaking];
   }
   const minScore = existingCount >= 10 ? 70 : 60;
+  // 晚间窗口保留（见函数注释）：仅当日（todayKey命中）生效。余额<=2时整个余额都留给
+  // 晚窗口稿（这正是2026-08-16事故场景：当日18条只剩2个名额，全被早窗口存量稿占走）
+  const LATE_RESERVE = 2;
+  const { dk = '', todayKey = '' } = opts;
+  const reserveActive = !!dk && dk === todayKey;
+  const lateStartMs = reserveActive ? Date.parse(`${dk}T08:00:00Z`) : NaN; // 北京16:00 = 08:00 UTC
+  const earlyLimit = reserveActive ? Math.max(0, capRemaining - LATE_RESERVE) : capRemaining;
   const qualified = pool.filter(a => a.ai_score >= minScore);
-  let selected = qualified.slice(0, capRemaining);
+  let earlyTaken = 0;
+  let skippedEarly = 0;
+  let selected = [];
+  for (const a of qualified) { // qualified 已按分数降序
+    if (selected.length >= capRemaining) break;
+    const isLate = Number.isFinite(lateStartMs) && Date.parse(a.published_at) >= lateStartMs;
+    if (!isLate) {
+      if (earlyTaken >= earlyLimit) { skippedEarly++; continue; } // 名额留给晚窗口稿
+      earlyTaken++;
+    }
+    selected.push(a);
+  }
+  if (skippedEarly > 0) {
+    console.log(`晚间窗口保留: 当日余量${capRemaining}个中留${LATE_RESERVE}个给北京16:00后发布的文章（本轮${skippedEarly}条早窗口稿暂缓）`);
+  }
   // 数量保障只对“当日总数不足10条”生效
   // （补齐地板56分：按锚点口径56-59属“边缘”上沿，宁可用它凑满当日下限，也有跨期查重与精选门槛兜底）
   const dayShort = 10 - existingCount - selected.length;
