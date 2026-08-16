@@ -435,6 +435,44 @@ T('政策保护通道: 非官方源的政策文章不享保送', () => {
   return sel.length === 1 && sel[0].ai_score === 90;
 });
 
+// ── 晚间窗口保留名额（2026-08-16 事故：美国白天=北京晚间发布的海外重磅稿，
+// 到场时当日配额已被国内白天稿灌到18-19条，剩1-2个名额被早窗口存量稿占走，
+// FT价格战、英伟达缩减OpenAI投资两条85分级新闻连漏。修复：当日为北京16:00后
+// 发布的文章保留最多2个名额，早窗口稿不得占满）──
+const EARLY16 = '2026-08-16T02:00:00.000Z'; // 北京10:00，早窗口
+const LATE16 = '2026-08-16T09:00:00.000Z';  // 北京17:00，晚窗口（北京16:00=08:00Z之后）
+const mkW = (score, iso) => ({ ai_score: score, published_at: iso });
+T('晚间保留: 事故复现——当日仅剩2名额时晚窗口稿挤掉早窗口存量稿', () => {
+  const list = [mkW(80, EARLY16), mkW(75, EARLY16), mkW(72, LATE16)];
+  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
+  return sel.length === 1 && sel[0].ai_score === 72; // 早窗口两条暂缓，名额留给晚窗口
+});
+T('晚间保留: 无达线晚窗口稿时名额留空（不降格给早窗口凑数）', () => {
+  const list = [mkW(80, EARLY16), mkW(75, EARLY16)];
+  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
+  return sel.length === 0; // 余额2全保留，等后续轮次的晚窗口稿
+});
+T('晚间保留: 余额充足时早窗口最多用掉 余额-2，晚窗口达线即入', () => {
+  const list = [mkW(80, EARLY16), mkW(78, EARLY16), mkW(76, EARLY16), mkW(74, EARLY16), mkW(73, LATE16), mkW(71, LATE16)];
+  const sel = selectByQuota(list, 15, { dk: '2026-08-16', todayKey: '2026-08-16' }); // 余额5，早窗口限3
+  return sel.length === 5 && sel.filter(a => a.published_at === EARLY16).length === 3;
+});
+T('晚间保留: 晚窗口稿仍须过当日门槛（增量轮>=70，不降分放行）', () => {
+  const list = [mkW(65, LATE16)]; // existingCount=18 -> 门槛70
+  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
+  return sel.length === 0;
+});
+T('晚间保留: 历史日补采不受保留约束（该日已过去，照常补满）', () => {
+  const list = [mkW(80, EARLY16), mkW(75, EARLY16)];
+  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-17' });
+  return sel.length === 2;
+});
+T('晚间保留: 未传opts时行为与旧版完全一致（向后兼容）', () => {
+  const list = [mkW(80, EARLY16), mkW(75, EARLY16), mkW(72, LATE16)];
+  const sel = selectByQuota(list, 18);
+  return sel.length === 2 && sel[0].ai_score === 80;
+});
+
 // ── 精评候选按日发布日分配（2026-08-14 事故：全局Top-N被存量稿占满，当日320条新稿只选出1条）──
 // 固定发布日（UTC时刻，北京日确定），不依赖测试运行时的真实时钟
 const mkDay = (scores, iso) => scores.map(s => ({ ai_score: s, published_at: iso }));
