@@ -164,6 +164,13 @@ export async function dedupAgainstRecent(candidates, recentEvents) {
           c.score_detail = JSON.stringify({ ...d, score: c.ai_score, demoted_by_dedup: { from: before, ref_id: ref.id } });
         } catch { /* 明细非JSON时跳过 */ }
       }
+      // 跟进稿地板线（2026-08-24事故：Astra暂停链被dedup压到50/35/20分仍全部入库，
+      // 前台API无分数下限，20分的重复回声直接暴露给用户）——主事件已入库，
+      // 压到"可看"档(60)以下的跟进稿没有独立阅读价值，直接剔除
+      if (typeof c.ai_score === 'number' && c.ai_score < 60) {
+        dropped.push({ ...c, __related_id: v.related_id, __reason: `跟进稿压分至${c.ai_score}(<60地板线)剔除` });
+        return;
+      }
       c.is_followup = 1;
       c.is_featured = 0; // 跟进稿强制不精选
       c.related_to = ref
