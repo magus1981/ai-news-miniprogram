@@ -931,7 +931,7 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
 
 /**
  * 日配额选取（纯函数，供测试）：一日多轮采集共享“每日10-20条”配额
- * - 首轮（当日0条）：>=60分取最多20条，不足10条用5 6-59分补齐到10条
+ * - 首轮（当日0条）：>=65分取最多20条，不足10条用56-64分补齐到10条
  * - 增量轮：配额=20-已有数；当日已达10条后门槛抬到70分——
  *   后续轮次只补“行业重要动态”级以上，不用凑数文章稀释日报
  * - 配额已满：只放行>=85分重大突发（最多2条），大新闻不因来得晚而漏掉
@@ -961,7 +961,9 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}) {
     if (breaking.length) console.log(`突发通道: 当日配额已满，仍放行 ${breaking.length} 条(>=85分)`);
     return [...protectedPicks, ...breaking];
   }
-  const minScore = existingCount >= 10 ? 70 : 60;
+  // 2026-08-27 门槛60→65：用户反馈质量下滑，60-64分"可看"档下沿多为凑数稿
+  // （细分领域小消息、顺带提AI的泛科技稿），地板抬高一格，静日仍有56分补齐通道兜底
+  const minScore = existingCount >= 10 ? 70 : 65;
   // 晚间窗口保留（见函数注释）：仅当日（todayKey命中）生效。余额<=2时整个余额都留给
   // 晚窗口稿（这正是2026-08-16事故场景：当日18条只剩2个名额，全被早窗口存量稿占走）
   const LATE_RESERVE = 2;

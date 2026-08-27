@@ -8,8 +8,9 @@
  */
 import './load-env.mjs'; // 必须最先加载：后续模块在求值时读取 process.env
 import Parser from 'rss-parser';
+import fs from 'fs';
 import { pathToFileURL } from 'url';
-import { SOURCES, alertThreshold } from './sources.mjs';
+import { SOURCES, alertThreshold, isGlobalSource } from './sources.mjs';
 import { filterArticles, RECENT_TITLE_DAYS, beijingDayKey } from './ai-filter.mjs';
 import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
@@ -45,8 +46,10 @@ import { scrapeDeepseek } from './scraper-deepseek.mjs';
 
 const parser = new Parser();
 
-// 仅采集最近72小时内的文章（放宽以覆盖低频官方博客）
-const HOURS_WINDOW = 72;
+// 仅采集最近36小时内的文章（2026-08-27 由72h收紧：UAE Google News等聚合源40-60小时
+// 晚到的陈旧稿大量占用日配额，是"质量下滑"的直接来源；36h仍足够覆盖跨时区正常延迟。
+// 低频官方博客不受影响——官方源走 OFFICIAL_WINDOW_DAYS=7天）
+const HOURS_WINDOW = 36;
 // 官方源（政府站）周更级频率，72h窗口对它太苛刻：漏一次即永久丢失
 // （2026-08-10教训：网信办08-07征求意见稿超窗后又被配额竞争挤掉）。
 // 每天采4轮，新发布首轮就会抓到；放宽到7天纯为防“漏一次=永久丢”。
@@ -231,9 +234,22 @@ async function main() {
     return;
   }
 
+  // 凌晨轻量轮（2026-08-27 新增）：dispatch 带 client_payload.mode==='light'
+  // 或命令行 --light 时只抓海外源，覆盖"美国白天=北京凌晨"窗口，
+  // 把美西重磅稿的入库延迟从最多12h+压到4h内（02:35/05:35 两轮）。
+  let lightMode = args.includes('--light');
+  try {
+    const evPath = process.env.GITHUB_EVENT_PATH;
+    if (!lightMode && evPath && fs.existsSync(evPath)) {
+      const ev = JSON.parse(fs.readFileSync(evPath, 'utf8'));
+      lightMode = ev?.client_payload?.mode === 'light';
+    }
+  } catch { /* 事件文件解析失败按普通轮处理 */ }
+  const activeSources = lightMode ? SOURCES.filter(isGlobalSource) : SOURCES;
+
   console.log('=== AI资讯采集管线启动 ===');
   console.log(`时间: ${new Date().toISOString()}`);
-  console.log(`源数量: ${SOURCES.length}`);
+  console.log(`源数量: ${activeSources.length}${lightMode ? '（凌晨轻量轮：仅海外源）' : ` / 全量 ${SOURCES.length}`}`);
   console.log('');
 
   // Step 1: 确保数据库表存在
@@ -243,7 +259,7 @@ async function main() {
   console.log('--- Step 1: 采集 ---');
   const allArticles = [];
   const healthStats = [];
-  for (const source of SOURCES) {
+  for (const source of activeSources) {
     const { articles, raw, error } = source.type === 'scraper'
       ? await fetchScraperSource(source)
       : await fetchSource(source);

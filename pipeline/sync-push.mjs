@@ -54,11 +54,7 @@ try {
 // DB 已推成功，存档推失败时退出码1让工作流标红，但服务器数据不受影响，
 // 下一轮会先拉回旧存档再增量，仅本轮图片丢失。
 const archiveDir = join(repoRoot, 'data', 'archive');
-try {
-  if (!fs.existsSync(archiveDir)) {
-    console.log('[sync] 无存档目录，跳过图片同步');
-    process.exit(0);
-  }
+async function pushArchiveOnce() {
   const tmpTar = join(repoRoot, 'data', 'archive.upload.tgz');
   try {
     // Windows/Linux 均带 tar（bsdtar/GNU tar），-C repoRoot/data 后打包 archive 目录名
@@ -76,12 +72,23 @@ try {
     body: abuf,
   });
   const atext = await ares.text();
-  if (!ares.ok) {
-    console.error(`[sync] 存档推送失败 (${ares.status}): ${atext}`);
-    process.exit(1);
-  }
+  if (!ares.ok) throw new Error(`存档推送失败 (${ares.status}): ${atext}`);
   console.log('[sync] 存档推送成功:', atext);
+}
+try {
+  if (!fs.existsSync(archiveDir)) {
+    console.log('[sync] 无存档目录，跳过图片同步');
+    process.exit(0);
+  }
+  try {
+    await pushArchiveOnce();
+  } catch (e) {
+    // 2026-08-27：8/21-8/24连续9轮因存档超限/瞬时故障标红，重试一次再判死
+    console.warn(`[sync] ${e.message}，30秒后重试一次`);
+    await new Promise(r => setTimeout(r, 30000));
+    await pushArchiveOnce();
+  }
 } catch (e) {
-  console.error('[sync] 存档推送网络错误:', e.message);
+  console.error('[sync] 存档推送最终失败:', e.message);
   process.exit(1);
 }

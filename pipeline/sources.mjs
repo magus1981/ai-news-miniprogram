@@ -481,3 +481,14 @@ export const CATEGORIES = [
 export function alertThreshold(source) {
   return source.alertDays || (source.source_type === 'official' ? 7 : 3);
 }
+
+/**
+ * 凌晨轻量轮（北京02:35/05:35=美西工作时段）只抓海外源：
+ * 政策源（日韩中东政府站）与国内媒体在北京凌晨无更新，抓了纯烧时间；
+ * 国内源由白天6轮覆盖。判定按URL特征：政策类一律排除，国内媒体域名排除。
+ */
+const CN_MEDIA_HOSTS = /jiqizhixin\.com|qbitai\.com|leiphone\.com|zhidx\.com|aiera\.com\.cn|geekpark\.net|infoq\.cn/i;
+export function isGlobalSource(source) {
+  if (source.category === 'policy') return false;
+  return !CN_MEDIA_HOSTS.test(source.url || '');
+}
