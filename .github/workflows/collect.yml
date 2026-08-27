@@ -4,11 +4,22 @@ on:
   # 定时触发改由生产服务器 crontab 调 API 发起（每天 07:35/09:05/11:05/14:05/20:05/23:35 北京时间，
   # 2026-08-09 早班提前到 7:35 采美国工作日隔夜新闻；2026-08-10 新增 9:05 轮赶上国内源早间发布；
   # 2026-08-16 新增 23:35 轮：美国白天=北京晚间，此前 20:05→次日07:35 空窗导致海外重磅稿漏收；
-  # 2026-08-27 新增 02:35/05:35 凌晨轻量轮（dispatch 带 client_payload.mode=light，
-  # collect.mjs 据此只抓海外源）：覆盖美西工作时段，重磅稿入库延迟从最多12h+压到4h内）：
+  # 2026-08-27 新增 02:35/05:35 凌晨轻量轮（dispatch inputs.mode=light，
+  # 经 COLLECT_MODE 环境变量传给 collect.mjs，只抓海外源）：覆盖美西工作时段，
+  # 重磅稿入库延迟从最多12h+压到4h内。注：client_payload 实测被 API 422 拒绝
+  # （未声明 inputs 的 workflow 不接受该键），故用声明式 inputs）：
   # GitHub 自带 cron 对新加入的 schedule 不可靠（实测 2026-08-04 三轮全部漏跑），
   # 服务器触发更可控；保留 workflow_dispatch 支持手动补跑
   workflow_dispatch: # 支持手动触发
+    inputs:
+      mode:
+        description: 'light=凌晨轻量轮(只抓海外源)；full=全量42源'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - light
 
 jobs:
   collect:
@@ -70,6 +81,7 @@ jobs:
         working-directory: ./pipeline
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          COLLECT_MODE: ${{ github.event.inputs.mode || 'full' }}
           # 备用代理（当前机器之心已改用curl-impersonate直连，暂不启用）
           # PROXY_URL: ${{ secrets.SYNC_URL }}
           # PROXY_TOKEN: ${{ secrets.SYNC_TOKEN }}

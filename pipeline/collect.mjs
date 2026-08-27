@@ -234,10 +234,11 @@ async function main() {
     return;
   }
 
-  // 凌晨轻量轮（2026-08-27 新增）：dispatch 带 client_payload.mode==='light'
-  // 或命令行 --light 时只抓海外源，覆盖"美国白天=北京凌晨"窗口，
+  // 凌晨轻量轮（2026-08-27 新增）：workflow dispatch inputs.mode==='light'
+  // （经 COLLECT_MODE 环境变量传入；client_payload 实测被 GitHub API 422 拒绝，
+  // 保留解析仅作兼容）或命令行 --light 时只抓海外源，覆盖"美国白天=北京凌晨"窗口，
   // 把美西重磅稿的入库延迟从最多12h+压到4h内（02:35/05:35 两轮）。
-  let lightMode = args.includes('--light');
+  let lightMode = args.includes('--light') || process.env.COLLECT_MODE === 'light';
   try {
     const evPath = process.env.GITHUB_EVENT_PATH;
     if (!lightMode && evPath && fs.existsSync(evPath)) {
