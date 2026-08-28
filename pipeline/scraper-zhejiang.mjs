@@ -2,14 +2,15 @@
  * 浙江省人民政府（zj.gov.cn）政策文件库爬虫
  * 页面端是JS渲染，真实数据来自底层JSON接口（无鉴权、无token）：
  *   POST https://zhengce.zj.gov.cn/policyweb/httpservice/getPolicy.do  (表单格式)
- * 请求参数：regioncode=330000000000000（省级部门文件过滤）+ pageIndex/pageSize
  * 返回 {success, params:{policyList:{data:[{title,iid,pubtime(毫秒戳),policyurl,...}],totalNum}}}
  * 详情页 https://zhengce.zj.gov.cn/policyweb/httpservice/showinfo.do?infoid=<iid>
- * 2026-08-11 实测无UA要求；全库含省市县各级文件，必须按regioncode过滤省级。
+ * 省级过滤参数演变（2026-08-28 修复）：原用 regioncode=330000000000000 过滤省级，
+ * 该子库2025年11月起停止同步（返回的全是陈旧条目→连续18天0产出）；接口整体仍健康
+ * （省政策文件库前端同样在调用，全库最新到当日）。改用 zccjfl=1（层级=省级）：
+ * 实测返回2.4万条全部 level=1（省人大法规/省政府/省部门文件及解读），最新到当日。
  */
 const API = 'https://zhengce.zj.gov.cn/policyweb/httpservice/getPolicy.do';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const REGION_PROVINCIAL = '330000000000000';
 const PAGES = 3;
 
 export async function scrapeZhejiang(source) {
@@ -19,7 +20,7 @@ export async function scrapeZhejiang(source) {
   for (let pageIndex = 1; pageIndex <= PAGES; pageIndex++) {
     try {
       const body = new URLSearchParams({
-        regioncode: REGION_PROVINCIAL,
+        zccjfl: '1', // 省级文件（替代已停更的 regioncode=330000000000000 子库）
         pageIndex: String(pageIndex),
         pageSize: '20',
         sortKey: '',

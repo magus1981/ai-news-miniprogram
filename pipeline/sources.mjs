@@ -34,8 +34,12 @@ export const SOURCES = [
   },
   {
     name: 'Microsoft AI',
-    // blogs.microsoft.com/ai/feed 已410下线，改用 Microsoft Source AI 专题feed（需Feedly UA）
-    url: 'https://news.microsoft.com/source/topics/ai/feed/',
+    // blogs.microsoft.com/ai/feed 已410下线；/source/topics/ai/feed/ 专题feed自2026-08-10起停更
+    // （feed仍可访问但条目冻结在8/10，08-18起连续0产出）。改用 Microsoft Source 全站官方feed：
+    // 日更且AI公告占多数（Copilot/ Azure AI /合作类），XBOX/体育等杂项靠AI筛选闸门过滤
+    // （与 MIT Tech Review / VentureBeat 全站feed+AI闸门同模式）。Chrome UA会被Cloudflare挑战，
+    // Feedly UA实测直连200（Node fetch与Actions均放行）。
+    url: 'https://news.microsoft.com/source/feed/',
     userAgent: 'Feedly/1.0',
     category: 'company',
     language: 'en',
@@ -242,7 +246,8 @@ export const SOURCES = [
     language: 'zh',
     source_type: 'official',
     official: true,
-    alertDays: 7,
+    alertDays: 14, // 2026-08-28 排查：爬虫正常（08-21备案批次曾连续7天日产8-9条新鲜稿），
+    // 静默期=栏目周批次发布的正常空窗（08-08~08-19、08-28起），阈值放宽到14天防误报
   },
   {
     name: '工信部',
@@ -289,11 +294,12 @@ export const SOURCES = [
   {
     name: '国家数据局',
     // 数据要素×AI政策核心出口（2026-08-10）：行业高质量数据集建设、数据产权登记、
-    // 公共数据开发利用等文件在此发布。通知公告栏目（tzgg）政策密度最高，
+    // 公共数据开发利用等文件在此发布。2026-08-28 起并采三栏目：新闻发布(xwfb,周更最活跃)、
+    // 政策发布(zcfb,正式文件)、通知公告(tzgg)——原只抓tzgg，该栏目07-22后停更致连续18天0产出。
     // 列表页SSR静态HTML；课题征集/大赛公告等非AI条目靠AI筛选闸门过滤。
     type: 'scraper',
     scraper: 'nda',
-    url: 'https://www.nda.gov.cn/sjj/zwgk/tzgg/list/index_pc_1.html', // 仅作记录，爬虫内部使用
+    url: 'https://www.nda.gov.cn/sjj/swdt/xwfb/list/index_pc_1.html', // 仅作记录，爬虫内部采三栏目
     category: 'policy',
     language: 'zh',
     source_type: 'official',
@@ -354,7 +360,10 @@ export const SOURCES = [
   // === 中东政策源（2026-08-11 接入）===
   {
     name: 'SDAIA 沙特数据AI局',
-    // 沙特国家数据与AI管理局新闻API（SharePoint后端，无反爬）
+    // 沙特国家数据与AI管理局新闻API（SharePoint后端，无反爬，须带Referer）
+    // 2026-08-28 排查：爬虫正常（Actions/本地 raw=53 均解析成功），非信源死亡——
+    // 该机构为极低频官方源（全年新闻个位数，最近一条为2026-08-10），7天窗内长期无新条目属正常。
+    // 告警阈值放宽到30天，避免把"低频静默"误判为"死亡"。
     type: 'scraper',
     scraper: 'sdaia',
     url: 'https://sdaia.gov.sa/en/MediaCenter/News/DataSources/NewsByYear.aspx',
@@ -362,7 +371,7 @@ export const SOURCES = [
     language: 'en',
     source_type: 'official',
     official: true,
-    alertDays: 7,
+    alertDays: 30,
   },
   {
     name: 'UAE AI News',
@@ -410,7 +419,8 @@ export const SOURCES = [
   },
   {
     name: '浙江省政府',
-    // 浙江省政策文件库JSON接口（须按regioncode过滤省级，否则混入市县文件）
+    // 浙江省政策文件库JSON接口（省级过滤：2026-08-28 起用 zccjfl=1，
+    // 原 regioncode=330000000000000 子库2025-11起停止同步致18天0产出）
     type: 'scraper',
     scraper: 'zhejiang',
     url: 'https://zhengce.zj.gov.cn/policyweb/httpservice/getPolicy.do',
@@ -430,7 +440,8 @@ export const SOURCES = [
     language: 'zh',
     source_type: 'official',
     official: true,
-    alertDays: 7,
+    alertDays: 14, // 2026-08-28 排查：爬虫正常（须带浏览器UA，当日抓到08-28新公告）。"10天0产出"
+    // 系该栏目月度成簇发布的空窗（08-12/13一小簇后直到08-28才有新文件），非信源死亡，阈值放宽到14天
   },
   {
     name: '江苏省政府',
