@@ -127,8 +127,20 @@ export const SOURCES = [
     language: 'en',
     source_type: 'media',
   },
-  // SemiAnalysis 已于2026-08-11下线：其feed自2025年7月起停更（付费墙断供），
-  // 连续11天0产出告警，勿重新添加除非先实测feed恢复更新
+  {
+    name: 'SemiAnalysis',
+    // 算力/芯片/数据中心深度分析第一权威，补infra维度海外信源短板；周更级低频长文。
+    // 2026-08-11 曾下线：原WordPress feed(semianalysis.com/feed)自2025-09-16起冻结（发布迁至Substack）。
+    // 2026-08-28 复活：改订 newsletter.semianalysis.com/feed，实测Node fetch各UA均200、
+    // 20条带ISO日期、最新3天内（OpenAI Jalapeño/Cerebras CS-4等）。alertDays=7：
+    // 周更节奏下36h媒体窗连日0产出属常态，3天阈值必误报。
+    url: 'https://newsletter.semianalysis.com/feed',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    category: 'infra',
+    language: 'en',
+    source_type: 'media',
+    alertDays: 7,
+  },
 
   // === 国内源（直接RSS或自建爬虫，不依赖RSSHub） ===
   {
