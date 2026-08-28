@@ -155,6 +155,7 @@ export async function generateSummary(article) {
 - 缩写不得擅自展开：原文只写缩写（如SSI、DPO）时，除非你百分之百确定全称，否则直接使用缩写，严禁臆造全称（如Ilya创办的SSI全称是Safe Superintelligence Inc.，不是其他任何展开）
 - 原文未明确提及开发商且你无法从"同事件其他报道标题"中确认时，宁可不写公司名，绝不臆断或编造
 - 不得编造原文没有的数据、人名、机构名
+- 数字与单位严禁换算改写（2026-08-28事故：320 billion被写成"320亿"，差10倍）：英文数字单位（billion/trillion/xxB/万/亿）照抄原文写法（如"320B"或"320 billion"），或精确换算成中文（320 billion=3200亿）；中文摘要中"亿"与"B/billion"严禁混用，换算没把握时一律照抄原文单位
 ${mergedBlock}${relatedBlock}
 ${CATEGORY_RULES}
 
