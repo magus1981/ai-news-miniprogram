@@ -1203,6 +1203,12 @@ ${candList}
     const drop = new Set(dup.map(n => n - 1).filter(i => Number.isInteger(i) && i >= 0 && i < candidates.length));
     if (!drop.size) return candidates;
     console.log(`跨期查重: 剔除与近期已发布同事件的旧闻重报 ${drop.size} 条`);
+    // 被杀必须可见（与漏报对账同哲学）：只记总数无法事后定位误杀
+    // （2026-08-28晚: 腾讯Hy4开源/量子位Claude机械臂疑似死于此层却无痕迹可查）
+    for (const i of [...drop].sort((x, y) => x - y)) {
+      const c = candidates[i];
+      console.log(`  [CROSS-DROP] [${c?.ai_score}分] ${String(c?.title || '').slice(0, 50)}`);
+    }
     return candidates.filter((_, i) => !drop.has(i));
   } catch (err) {
     console.warn('跨轮查重失败，跳过（不影响主流程）:', err.message);
