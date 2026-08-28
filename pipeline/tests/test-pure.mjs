@@ -12,7 +12,7 @@ import { applyTagInvariants } from '../classify-rules.mjs';
 import {
   parseDupIndexes, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
-  selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates,
+  selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
@@ -435,42 +435,76 @@ T('政策保护通道: 非官方源的政策文章不享保送', () => {
   return sel.length === 1 && sel[0].ai_score === 90;
 });
 
-// ── 晚间窗口保留名额（2026-08-16 事故：美国白天=北京晚间发布的海外重磅稿，
-// 到场时当日配额已被国内白天稿灌到18-19条，剩1-2个名额被早窗口存量稿占走，
-// FT价格战、英伟达缩减OpenAI投资两条85分级新闻连漏。修复：当日为北京16:00后
-// 发布的文章保留最多2个名额，早窗口稿不得占满）──
-const EARLY16 = '2026-08-16T02:00:00.000Z'; // 北京10:00，早窗口
-const LATE16 = '2026-08-16T09:00:00.000Z';  // 北京17:00，晚窗口（北京16:00=08:00Z之后）
-const mkW = (score, iso) => ({ ai_score: score, published_at: iso });
-T('晚间保留: 事故复现——当日仅剩2名额时晚窗口稿挤掉早窗口存量稿', () => {
-  const list = [mkW(80, EARLY16), mkW(75, EARLY16), mkW(72, LATE16)];
-  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
-  return sel.length === 1 && sel[0].ai_score === 72; // 早窗口两条暂缓，名额留给晚窗口
+// ── 晚间窗口保留（LATE_RESERVE）已于2026-08-28废弃：早窗名额被压到capRemaining-2，
+// 配合跨期查重造成整日配额空转零新增；原使命已由凌晨轻量轮+快讯探针接管。 ──
+// ── 日配额汰换竞争制（2026-08-28）：配额已满(20)时高分新稿顶替在库最低分条目，
+// 单轮至多5条；精选(is_featured=1)与官方政策条目豁免被汰；无可汰对象不放行。 ──
+const mkDb = (specs) => specs.map((s, i) => ({
+  id: i + 1,
+  title: `旧条${i + 1}`,
+  ai_score: typeof s === 'number' ? s : s.ai_score,
+  ...(typeof s === 'object' ? s : {}),
+}));
+const mkCand = (scores) => mkA(scores);
+
+T('汰换: 配额已满，92分新稿顶替在库最低分61分旧条', () => {
+  const db = mkDb([61, ...Array(19).fill(0).map((_, i) => 70 + i)]); // 最低61，次低70
+  const sel = selectByQuota(mkCand([92, 75]), 20, {}, db);
+  return sel.length === 2
+    && sel[0].__replaces?.id === 1 && sel[0].__replaces?.ai_score === 61
+    && sel[1].__replaces?.id === 2 && sel[1].__replaces?.ai_score === 70;
 });
-T('晚间保留: 无达线晚窗口稿时名额留空（不降格给早窗口凑数）', () => {
-  const list = [mkW(80, EARLY16), mkW(75, EARLY16)];
-  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
-  return sel.length === 0; // 余额2全保留，等后续轮次的晚窗口稿
-});
-T('晚间保留: 余额充足时早窗口最多用掉 余额-2，晚窗口达线即入', () => {
-  const list = [mkW(80, EARLY16), mkW(78, EARLY16), mkW(76, EARLY16), mkW(74, EARLY16), mkW(73, LATE16), mkW(71, LATE16)];
-  const sel = selectByQuota(list, 15, { dk: '2026-08-16', todayKey: '2026-08-16' }); // 余额5，早窗口限3
-  return sel.length === 5 && sel.filter(a => a.published_at === EARLY16).length === 3;
-});
-T('晚间保留: 晚窗口稿仍须过当日门槛（增量轮>=70，不降分放行）', () => {
-  const list = [mkW(65, LATE16)]; // existingCount=18 -> 门槛70
-  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-16' });
+T('汰换: 分数并列不算（须严格大于在库最低分）', () => {
+  const db = mkDb([63, ...Array(19).fill(80)]);
+  const sel = selectByQuota(mkCand([63]), 20, {}, db);
   return sel.length === 0;
 });
-T('晚间保留: 历史日补采不受保留约束（该日已过去，照常补满）', () => {
-  const list = [mkW(80, EARLY16), mkW(75, EARLY16)];
-  const sel = selectByQuota(list, 18, { dk: '2026-08-16', todayKey: '2026-08-17' });
-  return sel.length === 2;
+T('汰换: 单轮上限5条（7个高分候选：5个汰换+85分走突发兜底）', () => {
+  const db = mkDb([55, 56, 57, 58, 59, 60, 61, ...Array(13).fill(80)]);
+  const sel = selectByQuota(mkCand([90, 89, 88, 87, 86, 85, 84]), 20, {}, db);
+  const replaced = sel.filter(a => a.__replaces);
+  const breaking = sel.filter(a => !a.__replaces);
+  return replaced.length === MAX_REPLACE_PER_ROUND
+    && new Set(replaced.map(a => a.__replaces.id)).size === 5
+    && breaking.length === 1 && breaking[0].ai_score === 85 // 84分既没抢到汰换又不够85，被拒
+    && sel.length === 6;
 });
-T('晚间保留: 未传opts时行为与旧版完全一致（向后兼容）', () => {
-  const list = [mkW(80, EARLY16), mkW(75, EARLY16), mkW(72, LATE16)];
-  const sel = selectByQuota(list, 18);
-  return sel.length === 2 && sel[0].ai_score === 80;
+T('汰换: 精选与官方政策条目豁免，只能汰 unprotected 的最低分', () => {
+  const db = mkDb([
+    { ai_score: 60, is_featured: 1 },              // 精选豁免
+    { ai_score: 61, category: 'policy', source_type: 'official' }, // 官方政策豁免
+    63,                                             // 可汰
+    ...Array(17).fill(80),
+  ]);
+  const sel = selectByQuota(mkCand([64, 62]), 20, {}, db);
+  // 64分只能顶替63分那条；62分低于63且60/61豁免，无对象不放行
+  return sel.length === 1 && sel[0].__replaces?.id === 3 && sel[0].__replaces?.ai_score === 63;
+});
+T('汰换: 无可汰对象不放行（全库高分或全豁免时不硬塞）', () => {
+  const db = mkDb([
+    { ai_score: 60, is_featured: 1 },
+    { ai_score: 61, category: 'policy', source_type: 'official' },
+    ...Array(18).fill(90),
+  ]);
+  const sel = selectByQuota(mkCand([65]), 20, {}, db); // 65<85不进突发，也无低分可汰
+  return sel.length === 0;
+});
+T('汰换: 突发通道兜底——无低分可汰但>=85仍放行（与旧机制兼容）', () => {
+  const db = mkDb([...Array(20).fill(90)]);
+  const sel = selectByQuota(mkCand([86]), 20, {}, db);
+  return sel.length === 1 && sel[0].ai_score === 86 && !sel[0].__replaces;
+});
+T('汰换: 未传dayArticles时行为与旧版一致（仅突发通道，向后兼容）', () => {
+  const sel = selectByQuota(mkCand([90, 84, 80]), 20);
+  return sel.length === 1 && sel[0].ai_score === 90 && !sel[0].__replaces;
+});
+T('汰换: 上限护栏 MAX_REPLACE_PER_ROUND=5（防随手改动）', () => {
+  return MAX_REPLACE_PER_ROUND === 5;
+});
+T('汰换: 配额未满时不触发汰换（无__replaces标记）', () => {
+  const db = mkDb([61, 70]);
+  const sel = selectByQuota(mkCand([92, 88, 84, 80, 76, 72, 68, 64, 60, 58, 56]), 0, {}, db);
+  return sel.length >= 10 && sel.every(a => !a.__replaces);
 });
 
 // ── 精评候选按日发布日分配（2026-08-14 事故：全局Top-N被存量稿占满，当日320条新稿只选出1条）──
@@ -485,10 +519,10 @@ T('精评候选: 已满日存量稿不得占满名额，当日稿保底进精评
   const todayN = picked.filter(a => a.published_at === TODAY).length;
   return picked.length === 6 && todayN >= 3;
 });
-T('精评候选: 已满日只放>=80突发候选且至多2条', () => {
+T('精评候选: 已满日只放>=80候选且至多5条（与汰换单轮上限对齐）', () => {
   const list = mkDay([89, 84, 80, 79, 78], YEST);
   const picked = pickRefineCandidates(list, { '2026-08-13': { existingCount: 20 } }, 30);
-  return picked.map(a => a.ai_score).join(',') === '89,84';
+  return picked.map(a => a.ai_score).join(',') === '89,84,80';
 });
 T('精评候选: 全部日已满时不做全局补齐（存量稿不再白耗精评名额）', () => {
   const list = [...mkDay([90, 85, 70], YEST), ...mkDay([66, 64], TODAY)];

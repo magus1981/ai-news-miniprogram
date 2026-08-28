@@ -322,6 +322,46 @@ export async function getDayCounts(dateKey) {
 }
 
 /**
+ * 读取指定日期的已入库文章清单（供日配额汰换竞争制比较分数/判定豁免）
+ * 与 getDayCounts 同口径排除 noise；按分数升序返回，便于 selectByQuota 从最低分找汰换对象。
+ * 注意：articles 表无 source_type 列（采集时该字段只在内存对象上，从未落库），
+ * 官方政策豁免在 selectByQuota 内按 category='policy' 从严近似。
+ */
+export async function getDayArticlesForQuota(dateKey) {
+  const sql = `SELECT id, title, ai_score, is_featured, category FROM articles
+    WHERE date_key = ? AND category != 'noise' ORDER BY ai_score ASC`;
+  try {
+    if (LOCAL_MODE) {
+      return db.prepare(sql).all(dateKey);
+    }
+    const result = await db.execute({ sql, args: [dateKey] });
+    return result.rows;
+  } catch (err) {
+    console.warn('读取当日配额清单失败（按无可汰对象处理）:', err.message);
+    return [];
+  }
+}
+
+/**
+ * 按 id 删除文章（仅供日配额汰换：新条目顶替在库最低分条目时调用）
+ * 调用方必须先打日志留痕（被汰条目 id/标题/分数），再执行删除
+ * @returns {number} 实际删除行数
+ */
+export async function deleteArticleById(id) {
+  const sql = `DELETE FROM articles WHERE id = ?`;
+  try {
+    if (LOCAL_MODE) {
+      return db.prepare(sql).run(id).changes;
+    }
+    const result = await db.execute({ sql, args: [id] });
+    return Number(result.rows_affected || 0);
+  } catch (err) {
+    console.error(`删除被汰条目失败 (#${id}):`, err.message);
+    return 0;
+  }
+}
+
+/**
  * 读取指定日期的已入库文章（供导语独立回填等场景）
  */
 export async function getArticlesByDate(dateKey) {

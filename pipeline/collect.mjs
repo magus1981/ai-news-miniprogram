@@ -16,7 +16,7 @@ import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getArticlesByDate, getRecentEvents } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
@@ -368,7 +368,7 @@ async function main() {
       const fs = arts.filter(a => a.is_featured).map(a => a.ai_score).filter(s => typeof s === 'number');
       featuredMinScore = fs.length ? Math.min(...fs) : 0;
     }
-    dayContexts[d] = { existingCount: c.count, existingFeatured: c.featured, featuredMinScore };
+    dayContexts[d] = { existingCount: c.count, existingFeatured: c.featured, featuredMinScore, dayArticles: await getDayArticlesForQuota(d) };
     if (c.count > 0) console.log(`  发布日 ${d}: 已入库 ${c.count} 条（精选 ${c.featured} 条），本轮作增量处理`);
   }
   const recentTitles = await getRecentTitles(RECENT_TITLE_DAYS);
@@ -448,6 +448,21 @@ async function main() {
       ...a,
       date_key: a.date_key || beijingDayKey(a.published_at),
     }));
+
+  // 日配额汰换（2026-08-28 Top-20竞争制）：配额已满时新条目顶替在库最低分条目。
+  // selectByQuota 只打 __replaces 标记（纯函数不碰库），删除动作统一在写库前执行——
+  // 被汰条目若在后续环节（时效校验/跨期去重/噪音过滤）随新条目一起被剔除，则不删。
+  // 精选条目（is_featured=1）与官方政策条目在 selectByQuota 内豁免汰换，markFeatured
+  // 为增量标记（按 5-已精选 预算只增不减），精选永不被删，故精选数无需重算。
+  const replacements = finalArticles.filter(a => a.__replaces);
+  if (replacements.length) {
+    console.log(`--- 汰换写库: ${replacements.length} 条新稿顶替在库低分条目 ---`);
+    for (const a of replacements) {
+      const r = a.__replaces;
+      console.log(`  汰换: [${a.ai_score}分新条] ${a.title.slice(0, 50)} 顶替 [${r.ai_score}分旧条] ${r.title || '(无标题)'} (#${r.id})`);
+      await deleteArticleById(r.id);
+    }
+  }
 
   await insertArticles(finalArticles);
 

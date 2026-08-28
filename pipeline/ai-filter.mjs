@@ -329,12 +329,11 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
     // 当日新稿连被精评的机会都没有；这条日志直接暴露挤占）
     console.log(`精评候选按发布日: ${[...byDayCand.entries()].sort().map(([dk, l]) => `${dk}:${l.length}`).join(' ')}`);
     let selected = [];
-    // 当前北京日：传给 selectByQuota 启用晚间窗口保留（仅"当天"给晚窗口稿留名额，
-    // 历史日补采不受影响——美国白天发的稿归入北京当日，最容易被国内源白天稿挤掉）
-    const todayKey = beijingDayKey(new Date(now).toISOString());
+    // 当日在库清单经 dayContexts[dk].dayArticles 传入（collect.mjs 用 getDayArticlesForQuota 查询），
+    // 供配额已满日的汰换竞争制使用（见 selectByQuota）
     for (const [dk, list] of byDayCand) {
       const ctx = dayContexts[dk] || {};
-      selected.push(...selectByQuota(list, ctx.existingCount || 0, { dk, todayKey }));
+      selected.push(...selectByQuota(list, ctx.existingCount || 0, { dk }, ctx.dayArticles || []));
     }
     selected.sort((a, b) => b.ai_score - a.ai_score);
 
@@ -884,7 +883,9 @@ export function mergeIntoKept(kept, dropped) {
  * 配额已满日的落选稿（selectByQuota拒掉但不入库，URL去重拦不住）、精评分低于当日门槛的稿，
  * 下一轮原样回来再占Top-30，当日320条新稿连被精评的机会都没有，全天只选出1条。
  * 分配规则：
- * - 配额已满的日：只放粗评>=80的候选进精评（突发通道要求精评>=85，粗评留5分缓冲），至多2条
+ * - 配额已满的日：只放粗评>=80的候选进精评（汰换竞争要求精评分高于在库最低分，
+ *   粗评留缓冲），至多5条——与 selectByQuota 汰换的单轮上限对齐（2026-08-28 起
+ *   配额已满改为汰换竞争制，原2条上限会让"单轮至多汰换5条"永远够不着）
  * - 未满的日：每日保底基础名额（当日新稿永远有被精评的机会）
  * - 剩余名额按粗评分全局补齐（保留粗评捞回好文章的旧行为；保底名额通常已占满，
  *   这只在候选不足或某日稿件少于保底数时生效）
@@ -908,7 +909,7 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
   for (const [dk, items] of byDay) {
     const existing = (dayContexts[dk] || {}).existingCount || 0;
     if (existing >= DAY_CAP) {
-      for (const a of items.filter(x => x.ai_score >= 80).slice(0, 2)) push(a);
+      for (const a of items.filter(x => x.ai_score >= 80).slice(0, 5)) push(a);
     } else {
       openDays.push(items);
     }
@@ -934,59 +935,70 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
  * - 首轮（当日0条）：>=65分取最多20条，不足10条用56-64分补齐到10条
  * - 增量轮：配额=20-已有数；当日已达10条后门槛抬到70分——
  *   后续轮次只补“行业重要动态”级以上，不用凑数文章稀释日报
- * - 配额已满：只放行>=85分重大突发（最多2条），大新闻不因来得晚而漏掉
+ * - 配额已满（当日在库=20）：改为“Top-20 汰换竞争制”（2026-08-28）：
+ *   新候选分数 > 当日在库最低分即汰换——放行新条目并淘汰在库最低分那条，
+ *   单轮至多汰换 MAX_REPLACE_PER_ROUND 条；被汰者不得是官方政策条目或精选条目
+ *   （找不到可汰对象则不放行）。配额容量恒为20，增量竞争不膨胀总量。
+ * - 突发通道(>=85)保留兼容：配额已满时仍放行至多2条>=85分重大突发
+ *   （汰换通道已覆盖其中大部分，此处兜"当日全库高分、无低分可汰"的极端情况）
  * - 官方政策保护通道：官方政策源（网信办/工信部等）周更级频率，在增量配额里
  *   永远竞争不过当日新闻（2026-08-10事故：网信办08-07征求意见稿在08-09
  *   因当日只剩1个名额被挤掉）。>=70分的官方政策条目保送（每轮至多2条），
  *   不占日配额；量级每周仅几条，不会灌爆日报
- * - 晚间窗口保留名额（2026-08-16漏报修复）：国内源白天集中发稿，下午就把当日配额
- *   灌到18-19条；海外重磅稿（美国白天=北京晚间，发布时间在北京16:00之后）到场时
- *   只剩1-2个名额且门槛抬到70分，被系统性挤出（连漏FT价格战、英伟达缩减OpenAI投资
- *   两条85分级新闻）。当日尚在进行时（todayKey命中），为北京16:00后发布的文章
- *   保留 LATE_RESERVE 个名额：早窗口文章最多用掉 capRemaining-2 个，晚窗口稿达线即入；
- *   本轮没有达线晚窗口稿则名额留空等后续轮次。该日过去后保留自动失效，补采不受影响。
+ * - 历史机制"晚间窗口保留名额"（LATE_RESERVE）已于2026-08-28废弃：其原使命
+ *   （海外重磅晚到不被国内白天稿挤掉）已由凌晨轻量轮+breaking-ping快讯探针替代；
+ *   实测该保留反而把早窗名额压到capRemaining-2，配合跨期查重造成整日配额空转零新增。
  * @param {Array} deduped - 事件去重后的文章（分数降序）
  * @param {number} existingCount - 当日已入库文章数
- * @param {Object} [opts] - { dk: 该桶发布日YYYY-MM-DD, todayKey: 当前北京日 }，启用晚间保留需两者都提供
+ * @param {Object} [opts] - 保留参数（晚间窗口保留已废弃，仅为向后兼容空置）
+ * @param {Array<{id:number,title?:string,ai_score:number,is_featured?:number,category?:string}>} [dayArticles=[]]
+ *   当日在库文章清单（由 collect.mjs 经 getDayArticlesForQuota 查询传入）。
+ *   仅在配额已满时用于汰换比较；不传/传空数组则无汰换（保持旧行为，仅突发通道兜底）
+ * @returns {Array} 放行文章；其中经汰换入选的条目带 __replaces={id,title,ai_score} 标记，
+ *   由 collect.mjs 在写库阶段先删被汰条目再插入新条目（纯函数不做删除副作用）
  */
-export function selectByQuota(deduped, existingCount = 0, opts = {}) {
+export const MAX_REPLACE_PER_ROUND = 5;
+export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles = []) {
   const isProtectedPolicy = a => a.source_type === 'official' && a.category === 'policy' && a.ai_score >= 70;
+  // 被汰豁免：精选条目 + 政策类条目。在库清单查不到 source_type（采集时未落库），
+  // 官方政策无法精确识别，按“政策类一律豁免”从严处理——政策稿是保底配额机制的产物，
+  // 被汰会打穿保底，宁宽勿错。
+  const isProtectedVictim = a => a.category === 'policy' || Number(a.is_featured) === 1;
   const protectedPicks = deduped.filter(isProtectedPolicy).slice(0, 2);
   const pool = protectedPicks.length ? deduped.filter(a => !protectedPicks.includes(a)) : deduped;
   if (protectedPicks.length) console.log(`政策保护通道: 免配额放行 ${protectedPicks.length} 条官方政策(>=70分)`);
 
   const capRemaining = Math.max(0, 20 - existingCount);
   if (capRemaining === 0) {
-    const breaking = pool.filter(a => a.ai_score >= 85).slice(0, 2);
+    // 汰换竞争制：按分数降序逐个候选，从在库清单里找分数更低的可汰对象顶替
+    const selected = [];
+    const usedVictimIds = new Set();
+    if (Array.isArray(dayArticles) && dayArticles.length) {
+      const victims = dayArticles
+        .filter(a => a && Number.isFinite(Number(a.id)) && !isProtectedVictim(a))
+        .sort((x, y) => (Number(x.ai_score) || 0) - (Number(y.ai_score) || 0)); // 分数升序，最低分在前
+      for (const cand of [...pool].sort((a, b) => b.ai_score - a.ai_score)) {
+        if (selected.length >= MAX_REPLACE_PER_ROUND) break;
+        const victim = victims.find(v => !usedVictimIds.has(v.id) && (Number(v.ai_score) || 0) < cand.ai_score);
+        if (!victim) continue;
+        usedVictimIds.add(victim.id);
+        cand.__replaces = { id: victim.id, title: victim.title || '', ai_score: victim.ai_score };
+        selected.push(cand);
+      }
+      if (selected.length) {
+        console.log(`汰换竞争: 本轮 ${selected.length} 条新稿顶替在库低分条目（单轮上限${MAX_REPLACE_PER_ROUND}条）`);
+      }
+    }
+    // 突发通道兼容（>=85，至多2条）：经汰换已入选的不重复计入，其余仍兜底放行
+    const breaking = pool.filter(a => a.ai_score >= 85 && !selected.includes(a)).slice(0, 2);
     if (breaking.length) console.log(`突发通道: 当日配额已满，仍放行 ${breaking.length} 条(>=85分)`);
-    return [...protectedPicks, ...breaking];
+    return [...protectedPicks, ...selected, ...breaking];
   }
   // 2026-08-27 门槛60→65：用户反馈质量下滑，60-64分"可看"档下沿多为凑数稿
   // （细分领域小消息、顺带提AI的泛科技稿），地板抬高一格，静日仍有56分补齐通道兜底
   const minScore = existingCount >= 10 ? 70 : 65;
-  // 晚间窗口保留（见函数注释）：仅当日（todayKey命中）生效。余额<=2时整个余额都留给
-  // 晚窗口稿（这正是2026-08-16事故场景：当日18条只剩2个名额，全被早窗口存量稿占走）
-  const LATE_RESERVE = 2;
-  const { dk = '', todayKey = '' } = opts;
-  const reserveActive = !!dk && dk === todayKey;
-  const lateStartMs = reserveActive ? Date.parse(`${dk}T08:00:00Z`) : NaN; // 北京16:00 = 08:00 UTC
-  const earlyLimit = reserveActive ? Math.max(0, capRemaining - LATE_RESERVE) : capRemaining;
   const qualified = pool.filter(a => a.ai_score >= minScore);
-  let earlyTaken = 0;
-  let skippedEarly = 0;
-  let selected = [];
-  for (const a of qualified) { // qualified 已按分数降序
-    if (selected.length >= capRemaining) break;
-    const isLate = Number.isFinite(lateStartMs) && Date.parse(a.published_at) >= lateStartMs;
-    if (!isLate) {
-      if (earlyTaken >= earlyLimit) { skippedEarly++; continue; } // 名额留给晚窗口稿
-      earlyTaken++;
-    }
-    selected.push(a);
-  }
-  if (skippedEarly > 0) {
-    console.log(`晚间窗口保留: 当日余量${capRemaining}个中留${LATE_RESERVE}个给北京16:00后发布的文章（本轮${skippedEarly}条早窗口稿暂缓）`);
-  }
+  const selected = qualified.slice(0, capRemaining);
   // 数量保障只对“当日总数不足10条”生效
   // （补齐地板56分：按锚点口径56-59属“边缘”上沿，宁可用它凑满当日下限，也有跨期查重与精选门槛兜底）
   const dayShort = 10 - existingCount - selected.length;
@@ -994,7 +1006,7 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}) {
     const backfill = pool.filter(a => a.ai_score >= 56 && a.ai_score < minScore).slice(0, dayShort);
     if (backfill.length > 0) {
       console.log(`数量保障: 当日不足10条，用56-${minScore - 1}分段补入 ${backfill.length} 条`);
-      selected = selected.concat(backfill);
+      selected.push(...backfill);
     }
   }
   return [...protectedPicks, ...selected];
