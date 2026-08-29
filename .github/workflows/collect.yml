@@ -82,6 +82,11 @@ jobs:
         env:
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           COLLECT_MODE: ${{ github.event.inputs.mode || 'full' }}
+          # 国内IP中继（2026-08-29）：zj.gov.cn 等国内政务站拒绝海外IP（Actions直连fetch failed），
+          # 浙江爬虫直连失败后经生产服务器 /api/proxy 代拉（见 cn-relay.mjs）。
+          # 与机器之心的 PROXY_URL 刻意分开命名：后者会整体切换 jiqizhixin 抓取路径，勿启用
+          CN_RELAY_URL: ${{ secrets.SYNC_URL }}
+          CN_RELAY_TOKEN: ${{ secrets.SYNC_TOKEN }}
           # 备用代理（当前机器之心已改用curl-impersonate直连，暂不启用）
           # PROXY_URL: ${{ secrets.SYNC_URL }}
           # PROXY_TOKEN: ${{ secrets.SYNC_TOKEN }}
