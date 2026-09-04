@@ -163,7 +163,7 @@ AI筛选完成: N条 -> M条入选
 - **服务器**（`local-server.mjs`）：`/api/sync-archive` 解包后逐目录合并进 `data/archive`——同名覆盖、不动包外其他目录，天然不误删历史，存档全量永久保留（crontab 的 prune-archive.mjs 删图任务已停用）。
 - `/api/sync-archive-download`（整包下载）已退役，采集链路不再调用，保留仅作兼容/整包迁移用。
 - 磁盘水位：服务器 `daily-check.mjs` 检查 `/opt` 使用率，>75% 在快照输出 `disk_alert`。
-- **缺档回填**（`pipeline/archive-backfill.mjs`）：Actions 每轮全新工作区，某轮存档推送失败而 DB 成功时该批文章永不重采、存档永久缺失。兜底脚本读 DB 全量 URL 与 manifest 比对，对缺失条目重抓原文+图片后复用 `archive-sync.mjs` 增量推送补档；每次最多 20 条（`--limit N`），抓不到的记 `pipeline/archive-missing.log`（24h 内不重试）。大缺口分批跑：循环调用直到日志报"无可补条目"。`daily-check.mjs` 每日核对 DB 条数 vs 存档目录数，缺口>30 在快照输出 `archive_gap`。
+- **缺档回填**（`pipeline/archive-backfill.mjs`）：Actions 每轮全新工作区，某轮存档推送失败而 DB 成功时该批文章永不重采、存档永久缺失。兜底脚本读 DB 全量 URL 与 manifest 比对，对缺失条目重抓原文+图片后复用 `archive-sync.mjs` 增量推送补档；每次最多 20 条（`--limit N`），抓不到的记 `pipeline/archive-missing.log`（24h 内不重试）。大缺口分批跑：循环调用直到日志报"无可补条目"。`daily-check.mjs` 每日把 DB 各条 source_url 哈希与存档目录逐条比对（不能用条数对目录数——历史遗产目录会掩盖真实缺口），缺口>30 在快照输出 `archive_gap`。
 
 ---
 
