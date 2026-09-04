@@ -63,17 +63,10 @@ jobs:
             && echo "[OK] DB pulled: $(ls -lh data/articles.db | awk '{print $5}')" \
             || echo "[WARN] pull failed, starting from empty DB"
 
-      # 资料库存档（原文HTML+图片）同样跨轮累积：先拉回服务器存量存档，
-      # 采集时增量写入，推送时整包回传（与DB同步同构；拉取失败时空目录起步，
-      # 服务器端有防误清校验：空包不会覆盖已有存档）
-      - name: Pull archive from production
-        run: |
-          mkdir -p data
-          curl -sf -H "x-sync-token: ${{ secrets.SYNC_TOKEN }}" \
-            -o data/archive.tar.gz "${{ secrets.SYNC_URL }}/api/sync-archive-download" \
-            && tar -xzf data/archive.tar.gz -C data && rm -f data/archive.tar.gz \
-            && echo "[OK] archive pulled" \
-            || echo "[WARN] archive pull failed, starting empty"
+      # 资料库存档不再整包拉回（2026-09-04）：fetch-content.mjs 写存档是纯增量写入
+      # （按URL哈希建目录，从不读旧条目），sync-push.mjs 推送前对照服务器
+      # /api/archive-manifest 只增量打包新目录，服务器端逐目录合并、不动存量。
+      # 整包拉回-回传的旧机制已废弃（276MB/轮全量上传不再发生）
 
       # 中途报错（如导语生成超时）不阻断推送——已入库的数据照样同步；
       # 服务器侧有防误清库保护（新库条数<现有一半会被拒收）

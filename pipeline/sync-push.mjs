@@ -1,6 +1,7 @@
 /**
  * 生产数据推送：把本地 articles.db 整库上传到生产服务器（POST /api/sync-upload），
- * 并把资料库存档（data/archive，原文HTML+图片）打包为 tar.gz 一起推送（POST /api/sync-archive）
+ * 并把资料库存档（data/archive，原文HTML+图片）增量推送到生产服务器：
+ * 对照 GET /api/archive-manifest 只打包服务器没有的新目录（POST /api/sync-archive 合并）
  * 用法: node pipeline/sync-push.mjs
  * 配置: pipeline/.env 中设置 SYNC_URL（如 http://1.2.3.4:3000）和 SYNC_TOKEN
  *       未配置时静默跳过（不影响本地开发流程）
@@ -50,22 +51,40 @@ try {
   process.exit(1);
 }
 
-// 资料库存档推送（best-effort 之上的严格模式：存档丢一次就是永久丢，必须失败可见）：
-// DB 已推成功，存档推失败时退出码1让工作流标红，但服务器数据不受影响，
-// 下一轮会先拉回旧存档再增量，仅本轮图片丢失。
+// 资料库存档推送（2026-09-04 改增量同步，替代原"整包上传"）：
+// 先拉服务器 manifest（GET /api/archive-manifest），只打包本地 data/archive 中
+// 服务器没有的一级目录（增量 tar），无新增则跳过推送。服务器端逐目录合并、
+// 不动包外存量目录，天然不会误删历史。
+// 失败可见铁律不变：manifest 拉取或存档推送失败都退出码1让工作流标红
+// （存档丢一次就是永久丢，禁止静默降级整包重传）
 const archiveDir = join(repoRoot, 'data', 'archive');
 async function pushArchiveOnce() {
+  // 1) 拉服务器存量目录清单
+  const mres = await fetch(url.replace(/\/+$/, '') + '/api/archive-manifest', {
+    headers: { 'x-sync-token': token },
+  });
+  if (!mres.ok) throw new Error(`manifest 拉取失败 (${mres.status}): ${await mres.text()}`);
+  const remoteDirs = new Set(await mres.json());
+  // 2) 对比本地：只打包服务器没有的新目录
+  const localDirs = fs.readdirSync(archiveDir, { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name).sort();
+  const newDirs = localDirs.filter(d => !remoteDirs.has(d));
+  if (newDirs.length === 0) {
+    console.log(`[sync] 存档无新增目录（本地 ${localDirs.length} = 服务器 ${remoteDirs.size}），跳过存档推送`);
+    return;
+  }
   const tmpTar = join(repoRoot, 'data', 'archive.upload.tgz');
   try {
-    // Windows/Linux 均带 tar（bsdtar/GNU tar），-C repoRoot/data 后打包 archive 目录名
-    await execFileP('tar', ['-czf', tmpTar, '-C', join(repoRoot, 'data'), 'archive'], { timeout: 180000 });
+    // 增量包：tar -C data/archive 直接以目录名打包（无 archive/ 前缀），
+    // 服务器解包后逐目录合并（兼容带/不带前缀两种形态）
+    await execFileP('tar', ['-czf', tmpTar, '-C', archiveDir, ...newDirs], { timeout: 180000 });
   } catch (e) {
     console.error('[sync] 存档打包失败:', e.message);
     process.exit(1);
   }
   const abuf = fs.readFileSync(tmpTar);
   fs.rmSync(tmpTar, { force: true });
-  console.log(`[sync] 上传存档 ${(abuf.length / 1024 / 1024).toFixed(2)} MB -> ${url}`);
+  console.log(`[sync] 增量推送存档: ${newDirs.length} 个新目录, ${(abuf.length / 1024 / 1024).toFixed(2)} MB -> ${url}`);
   const ares = await fetch(url.replace(/\/+$/, '') + '/api/sync-archive', {
     method: 'POST',
     headers: { 'x-sync-token': token, 'content-type': 'application/gzip' },
@@ -83,7 +102,7 @@ try {
   try {
     await pushArchiveOnce();
   } catch (e) {
-    // 2026-08-27：8/21-8/24连续9轮因存档超限/瞬时故障标红，重试一次再判死
+    // 2026-08-27：连续9轮因存档超限/瞬时故障标红的教训，重试一次再判死
     console.warn(`[sync] ${e.message}，30秒后重试一次`);
     await new Promise(r => setTimeout(r, 30000));
     await pushArchiveOnce();

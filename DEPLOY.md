@@ -155,6 +155,17 @@ AI筛选完成: N条 -> M条入选
 
 ---
 
+## 资料库存档同步机制（2026-09-04 起为增量合并）
+
+存档 = `data/archive/{URL哈希}/`（article.html + images/），采集管线 `fetch-content.mjs` 按哈希建目录纯增量写入，从不读旧条目。
+
+- **推送**（`pipeline/sync-push.mjs`）：先 `GET /api/archive-manifest` 拉服务器存量目录名清单，只打包本地有、服务器没有的新目录（增量 tar，一般每轮几 MB），`POST /api/sync-archive` 上传；无新增则跳过。不再整包上传（旧机制每轮 276MB）。
+- **服务器**（`local-server.mjs`）：`/api/sync-archive` 解包后逐目录合并进 `data/archive`——同名覆盖、不动包外其他目录，天然不误删历史，存档全量永久保留（crontab 的 prune-archive.mjs 删图任务已停用）。
+- `/api/sync-archive-download`（整包下载）已退役，采集链路不再调用，保留仅作兼容/整包迁移用。
+- 磁盘水位：服务器 `daily-check.mjs` 检查 `/opt` 使用率，>75% 在快照输出 `disk_alert`。
+
+---
+
 ## ④ 小程序：切换生产地址
 
 编辑 `miniprogram/utils/config.js`，两处改动：
