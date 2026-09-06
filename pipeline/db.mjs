@@ -297,6 +297,32 @@ export async function getSourceHealthHistory(days = 14) {
 }
 
 /**
+ * 查询某信源距上次抓取(健康记录写入)的小时数，供"按源抓取间隔"限流保护用。
+ * checked_at 由 SQLite datetime('now') 写入（UTC），故此处用 julianday 做差，
+ * 避免 Node 端把 'YYYY-MM-DD HH:MM:SS'(无时区标记) 当本地时间解析造成的时区偏移误判。
+ * 主键 (date_key, source_name) 保证一天一行，取 date_key 最新行的 checked_at 即上次真实抓取时刻。
+ * @param {string} sourceName
+ * @returns {Promise<number|null>} 距上次抓取小时数；该源从无健康记录时返回 null（视为可抓取）
+ */
+export async function getHoursSinceLastFetch(sourceName) {
+  const sql = `SELECT (julianday('now') - julianday(checked_at)) * 24.0 AS hours_since
+    FROM source_health WHERE source_name = ?
+    ORDER BY date_key DESC, checked_at DESC LIMIT 1`;
+  try {
+    if (LOCAL_MODE) {
+      const row = db.prepare(sql).get(sourceName);
+      return row && row.hours_since != null ? Number(row.hours_since) : null;
+    }
+    const result = await db.execute({ sql, args: [sourceName] });
+    const row = result.rows[0];
+    return row && row.hours_since != null ? Number(row.hours_since) : null;
+  } catch (err) {
+    console.warn(`读取 ${sourceName} 上次抓取时间失败（按可抓处理）:`, err.message);
+    return null;
+  }
+}
+
+/**
  * 统计指定日期已入库文章数与精选数（供一日多轮采集共享日配额）
  * 排除 noise（不占用展示名额）
  * @returns {{count: number, featured: number}}

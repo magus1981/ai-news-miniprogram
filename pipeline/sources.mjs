@@ -118,6 +118,11 @@ export const SOURCES = [
     category: 'company',
     language: 'en',
     source_type: 'media',
+    // 按源抓取间隔：VentureBeat 对 feed 端点做了速率限制。2026-09-04 起轮次加密到
+    // 9轮/天+30分钟探针后，本机与阿里云两出口 IP 均返回 HTTP 429（非 IP 封锁，中继无解），
+    // source_health 连续三天 raw=0。限到每 8h 最多抓一次（每天约 3 次）把请求频率降下来。
+    // 该字段由 collect.mjs 采集循环消费：距上次抓取不足 N 小时则本轮 SKIP，且不写健康行。
+    fetchIntervalHours: 8,
   },
   {
     name: 'MIT Tech Review',

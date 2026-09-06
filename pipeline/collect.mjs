@@ -16,7 +16,7 @@ import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
@@ -261,6 +261,17 @@ async function main() {
   const allArticles = [];
   const healthStats = [];
   for (const source of activeSources) {
+    // 按源抓取间隔（429限流保护，2026-09-06）：配置了 fetchIntervalHours 的源，若距上次真实抓取
+    // 不足 N 小时则本轮跳过。跳过=不请求该源、且不写入 healthStats——因此其 source_health 行不被触碰
+    // （checked_at/fetched/raw 保持上次真实抓取值），既不会把该源误记成 0 产出污染连续0告警，
+    // 也不会推进间隔计时。以后任何被限流的源都可通过配置该字段复用此机制。
+    if (source.fetchIntervalHours) {
+      const hoursSince = await getHoursSinceLastFetch(source.name);
+      if (hoursSince != null && hoursSince < source.fetchIntervalHours) {
+        console.log(`  [SKIP] ${source.name}: 距上次抓取不足 ${source.fetchIntervalHours}h（429 限流保护，实测距上次 ${hoursSince.toFixed(1)}h），本轮跳过`);
+        continue;
+      }
+    }
     const { articles, raw, error } = source.type === 'scraper'
       ? await fetchScraperSource(source)
       : await fetchSource(source);
