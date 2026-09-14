@@ -1,0 +1,10 @@
+# deploy/crontab.additions — 追加式 crontab 片段(勿直接 crontab <file> 覆盖!)
+#
+# 追加方法(合并去重, 保留现有任务):
+#   crontab -l | sort -u - /opt/ai-news/deploy/crontab.additions | crontab -
+# 说明: crontab -l 先列出现有行, sort -u 与本片段的行合并并去掉完全相同的重复行,
+#       再整体写回。首次追加后重复执行也安全(幂等); 但若你改过旧行内容, 请先手动
+#       crontab -e 清理过期条目再执行。
+#
+# 每天 03:30 备份生产库, 输出(含 [BACKUP-ALERT])追加到日志:
+30 3 * * * /opt/ai-news/deploy/db-backup.sh >> /opt/ai-news/db-backup.log 2>&1
