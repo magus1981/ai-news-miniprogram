@@ -1,0 +1,8 @@
+5 9,11,14,20 * * * /opt/ai-news/trigger-collect.sh
+35 7 * * * /opt/ai-news/trigger-collect.sh
+35 23 * * * /opt/ai-news/trigger-collect.sh
+35 2,5 * * * /opt/ai-news/trigger-collect.sh light
+# 停用 2026-09-04：存档改全量永久保留，不再删图 50 4 * * * node /opt/ai-news/prune-archive.mjs >> /opt/ai-news/prune-archive.log 2>&1
+*/30 * * * * node /opt/ai-news/breaking-ping.mjs >> /opt/ai-news/breaking-ping.log 2>&1
+5 17 * * * /opt/ai-news/trigger-collect.sh
+10 9 * * * node /opt/ai-news/daily-check.mjs >> /opt/ai-news/daily-check.log 2>&1

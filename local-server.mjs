@@ -11,6 +11,8 @@ import { dirname, join } from 'path';
 import path from 'path';
 import fs from 'fs';
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
+import dns from 'dns/promises';
 import { SOURCES, alertThreshold } from './pipeline/sources.mjs';
 
 const execFileP = promisify(execFile);
@@ -23,9 +25,87 @@ const dbPath = join(__dirname, 'data', 'articles.db');
 // 资料库存档目录（data/archive/{url哈希}/，与仓库 data/ 同根，供静态回显与同步打包）
 const archiveDir = join(__dirname, 'data', 'archive');
 // 存档上传体上限（单轮正常几MB~几十MB，防异常膨胀）
-const MAX_ARCHIVE_UPLOAD = 200 * 1024 * 1024;
+const MAX_ARCHIVE_UPLOAD = 1024 * 1024 * 1024;
 // 生产数据同步开关：设置 SYNC_TOKEN 环境变量后启用 POST /api/sync-upload（本地开发不设即关闭）
 const SYNC_TOKEN = process.env.SYNC_TOKEN || '';
+
+// ── 令牌分域（2026-09-14 安全审计）───────────────────────────────────
+// 原先整库读写、存档读写、代拉中继共用同一个 SYNC_TOKEN，且服务裸 HTTP 无 TLS：
+// token 在链路/日志/systemd unit 里泄露一次，就等于把"整库替换"交出去。
+// 现按能力拆三域，各自未配置时回落 SYNC_TOKEN —— Actions 侧不改也不断链，
+// 逐步在 GitHub secrets 里换成专用 token 即可彻底隔离爆炸半径：
+//   DB_TOKEN       整库读/写  /api/sync-download, /api/sync-upload
+//   ARCHIVE_TOKEN  存档读/写  /api/archive-manifest, /api/sync-archive-download, /api/sync-archive
+//   PROXY_TOKEN    代拉中继  /api/proxy
+const DB_TOKEN = process.env.DB_TOKEN || SYNC_TOKEN;
+const ARCHIVE_TOKEN = process.env.ARCHIVE_TOKEN || SYNC_TOKEN;
+const PROXY_TOKEN = process.env.PROXY_TOKEN || SYNC_TOKEN;
+
+// 恒定时间比较：避免按字节早退造成的 token 猜解侧信道
+function tokenOk(given, expected) {
+  if (!expected) return false;
+  const a = Buffer.from(String(given ?? ''), 'utf8');
+  const b = Buffer.from(String(expected), 'utf8');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+// 门控端点统一鉴权：expected 为空视为该能力整体关闭（403），token 不符 401
+function authOrFail(res, req, expected, disabledMsg) {
+  if (!expected) { sendJSON(res, 403, { error: disabledMsg }); return false; }
+  if (!tokenOk(req.headers['x-sync-token'], expected)) { sendJSON(res, 401, { error: 'unauthorized' }); return false; }
+  return true;
+}
+
+// ── SSRF 防护：目标主机解析到的地址必须全部为公网单播 ─────────────────
+// 覆盖 环回/私有/链路本地/云元数据（阿里云 100.100.100.200 落在 100.64/10 内）
+// /运营商级 NAT/组播/保留段，以及 IPv6 的 ::1、fc00::/7、fe80::/10、ff00::/12。
+function isBlockedIp(ip) {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;          // CGNAT + 阿里云元数据
+    if (a === 169 && b === 254) return true;                     // 链路本地 + AWS/GCP 元数据
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 192 && b === 0) return true;                       // 192.0.0.0/24 + 192.0.2.0/24 TEST-NET
+    if (a === 198 && (b === 18 || b === 19)) return true;
+    if (a === 224 || a === 240 || a === 255) return true;        // 组播/保留/广播
+    return false;
+  }
+  const s = ip.toLowerCase().replace(/%.*$/, '');
+  if (s === '::' || s === '::1') return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(s)) return true;                 // fc00::/7 ULA
+  if (/^fe[89ab][0-9a-f]:/.test(s)) return true;                 // fe80::/10
+  if (/^ff/.test(s)) return true;                                // 组播
+  if (/^2001:0?000:/.test(s.replace(/^2001:db8:/, '2001:0db8:'))) return false;
+  if (/^::ffff:/.test(s)) return isBlockedIp(s.split('::ffff:')[1]);
+  return false;
+}
+async function assertPublicTarget(hostname) {
+  const clean = hostname.replace(/^\[|\]$/g, '');
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(clean) || /^[0-9a-f:]+$/.test(clean) && clean.includes(':')) {
+    if (isBlockedIp(clean)) throw new Error('blocked target ip');
+    return;
+  }
+  let addrs;
+  try { addrs = await dns.lookup(clean, { all: true, verbatim: true }); }
+  catch { throw new Error('unresolved host'); }
+  if (!addrs.length) throw new Error('unresolved host');
+  for (const a of addrs) if (isBlockedIp(a.address)) throw new Error('blocked target host');
+}
+
+// 中继限流：滑窗计数，防 token 泄露后被当免费代理池滥用
+const PROXY_MAX_PER_MIN = Number(process.env.PROXY_MAX_PER_MIN || 120);
+const PROXY_ALLOWED_METHODS = new Set(['GET', 'POST', 'HEAD']); // 禁 PUT/DELETE 等写方法
+let proxyHits = [];
+function proxyRateLimited() {
+  const now = Date.now();
+  proxyHits = proxyHits.filter(t => now - t < 60000);
+  if (proxyHits.length >= PROXY_MAX_PER_MIN) return true;
+  proxyHits.push(now);
+  return false;
+}
 
 // 相关报道检索窗口（openDb 预编译语句依赖，须前置声明）
 const RELATED_WINDOW_DAYS = 30;
@@ -263,8 +343,7 @@ function handleRequest(req, res) {
 
   // GET /api/sync-download（供 GitHub Actions 采集前拉取当前库，保持历史连续）
   if (req.method === 'GET' && pathname === '/api/sync-download') {
-    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
-    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    if (!authOrFail(res, req, DB_TOKEN, 'sync disabled')) return;
     // 下载前强制WAL checkpoint：WAL模式下近期提交（含服务器端手工补录）可能还留在
     // -wal文件里，只传主库文件会丢数据，下一轮整库回推将其永久冲掉
     // （2026-08-11事故：黎曼补录条目因此丢失）。服务连接是readonly，
@@ -282,13 +361,27 @@ function handleRequest(req, res) {
     return;
   }
 
-  // GET /api/sync-archive-download（供 GitHub Actions 采集前拉回服务器存量存档：
-  // Actions 每次全新工作区，不先拉回再增量，整包回传会把服务器存档抹掉）
+  // GET /api/archive-manifest（2026-09-04 增量存档配套：返回 data/archive 下所有一级目录名，
+  // 供推送方对比后只打包本地新增目录，实现增量同步。响应为 JSON 字符串数组，几百KB内）
+  if (req.method === 'GET' && pathname === '/api/archive-manifest') {
+    if (!authOrFail(res, req, ARCHIVE_TOKEN, 'sync disabled')) return;
+    let names = [];
+    if (fs.existsSync(archiveDir)) {
+      names = fs.readdirSync(archiveDir, { withFileTypes: true })
+        .filter(e => e.isDirectory())
+        .map(e => e.name)
+        .sort();
+    }
+    return sendJSON(res, 200, names);
+  }
+
+  // GET /api/sync-archive-download（整包下载存量存档）
+  // 【已退役】2026-09-04 存档改增量合并后，GitHub Actions 采集链路不再调用本端点；
+  // 保留仅作兼容/未来整包迁移用。客户端打包/推送逻辑见仓库 pipeline/sync-push.mjs
   // 实现：预打包到 data/archive.tar.gz 缓存再流式发文件（Windows bsdtar 的
   // "-czf -" 管道输出会挂起，写文件正常；mtime 比目录旧时自动重建）
   if (req.method === 'GET' && pathname === '/api/sync-archive-download') {
-    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
-    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    if (!authOrFail(res, req, ARCHIVE_TOKEN, 'sync disabled')) return;
     if (!fs.existsSync(archiveDir)) return sendJSON(res, 404, { error: 'no archive yet' });
     (async () => {
       try {
@@ -316,21 +409,54 @@ function handleRequest(req, res) {
   // 2026-08-07：机器之心 WAF 开始拦海外IP，Actions 上 curl 被重定向到推广页）
   // 请求体：{url, method?, headers?, body?}；返回 {status, contentType, body}，body 上限 2MB
   if (req.method === 'POST' && pathname === '/api/proxy') {
-    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'proxy disabled' });
-    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    if (!authOrFail(res, req, PROXY_TOKEN, 'proxy disabled')) return;
     const chunks = [];
     req.on('data', c => chunks.push(c));
     req.on('end', async () => {
       try {
         const spec = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (!/^https:\/\//.test(spec.url || '')) return sendJSON(res, 400, { error: 'https only' });
-        const resp = await fetch(spec.url, {
-          method: spec.method === 'POST' ? 'POST' : 'GET',
-          headers: spec.headers || {},
-          body: spec.body != null ? spec.body : undefined,
-          redirect: 'follow',
-          signal: AbortSignal.timeout(20000),
-        });
+        // —— 目标校验（2026-09-14 加固）——
+        // 旧实现只查 https:// 前缀便把 headers/body 原样转发且 redirect:'follow'，
+        // 拿到 token 者可用 302 弹到内网/云元数据（SSRF），或把本机当任意站点的代理。
+        const method = String(spec.method || 'GET').toUpperCase();
+        if (!PROXY_ALLOWED_METHODS.has(method)) return sendJSON(res, 400, { error: 'method not allowed' });
+        let target;
+        try { target = new URL(spec.url || ''); } catch { return sendJSON(res, 400, { error: 'bad url' }); }
+        if (target.protocol !== 'https:') return sendJSON(res, 400, { error: 'https only' });
+        if (target.port && target.port !== '443') return sendJSON(res, 400, { error: 'port not allowed' });
+        if (proxyRateLimited()) {
+          res.setHeader('Retry-After', '60');
+          return sendJSON(res, 429, { error: 'relay rate limited' });
+        }
+        try { await assertPublicTarget(target.hostname); }
+        catch (e) { return sendJSON(res, 400, { error: 'blocked target: ' + e.message }); }
+        // 剥掉逐跳头，避免把客户端连接层语义带进二次请求
+        const fwdHeaders = {};
+        for (const [k, v] of Object.entries(spec.headers || {})) {
+          const lk = String(k).toLowerCase();
+          if (['host', 'connection', 'content-length', 'transfer-encoding', 'upgrade', 'expect'].includes(lk)) continue;
+          fwdHeaders[k] = v;
+        }
+        // 手动跟随重定向，逐跳重做协议/端口/私网校验（302 弹内网是旧版的主要缺口）
+        let resp, url = target.toString();
+        for (let hop = 0; ; hop++) {
+          resp = await fetch(url, {
+            method,
+            headers: fwdHeaders,
+            body: method === 'POST' && spec.body != null ? spec.body : undefined,
+            redirect: 'manual',
+            signal: AbortSignal.timeout(20000),
+          });
+          if (![301, 302, 303, 307, 308].includes(resp.status)) break;
+          const loc = resp.headers.get('location');
+          if (!loc || hop >= 3) return sendJSON(res, 502, { error: 'redirect refused' });
+          let next;
+          try { next = new URL(loc, url); } catch { return sendJSON(res, 502, { error: 'bad redirect' }); }
+          if (next.protocol !== 'https:' || (next.port && next.port !== '443')) return sendJSON(res, 502, { error: 'redirect blocked' });
+          try { await assertPublicTarget(next.hostname); }
+          catch (e) { return sendJSON(res, 502, { error: 'redirect blocked: ' + e.message }); }
+          url = next.toString();
+        }
         let body = await resp.text();
         if (body.length > 2 * 1024 * 1024) body = body.slice(0, 2 * 1024 * 1024);
         return sendJSON(res, 200, {
@@ -346,28 +472,38 @@ function handleRequest(req, res) {
     return;
   }
 
-  // POST /api/sync-archive（资料库存档同步：接收 tar.gz 整包，解到临时目录后原子替换）
-  // 与 sync-upload 同构：防误清对应物——老存档有图而新包空图时拒收
-  // （客户端拉取失败的空工作区回传会把服务器存档抹掉）
+  // POST /api/sync-archive（资料库存档同步：接收 tar.gz 增量包，解包后逐目录合并进 data/archive）
+  // 2026-09-04 起：同目录名覆盖、不动包外其他目录——存档全量永久保留，不再整包替换
   if (req.method === 'POST' && pathname === '/api/sync-archive') {
-    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
-    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
-    const chunks = [];
-    req.on('data', c => chunks.push(c));
-    req.on('end', async () => {
-      const tmpTar = join(__dirname, 'data', 'archive.upload.tgz');
+    if (!authOrFail(res, req, ARCHIVE_TOKEN, 'sync disabled')) return;
+    const tmpTar = join(__dirname, 'data', 'archive.upload.tgz');
+    // 流式落盘（2026-08-24：存档已涨到200MB+，旧实现在内存Buffer.concat整包，
+    // 1.6GB内存的服务器有OOM风险；改边收边写文件，内存占用恒定为流缓冲）
+    let received = 0, oversized = false, finished = false;
+    const ws = fs.createWriteStream(tmpTar);
+    req.on('data', c => {
+      received += c.length;
+      if (received > MAX_ARCHIVE_UPLOAD && !oversized) {
+        oversized = true;
+        req.destroy();
+        ws.destroy();
+        fs.rmSync(tmpTar, { force: true });
+        if (!finished) { finished = true; return sendJSON(res, 413, { error: 'archive too large' }); }
+      }
+    });
+    req.pipe(ws);
+    ws.on('close', async () => {
+      if (oversized || finished) return;
+      finished = true;
       const tmpDir = join(__dirname, 'data', 'archive.new');
-      const oldBackup = join(__dirname, 'data', 'archive.old');
       try {
-        const abuf = Buffer.concat(chunks);
-        if (abuf.length < 100) return sendJSON(res, 400, { error: 'payload too small' });
-        if (abuf.length > MAX_ARCHIVE_UPLOAD) return sendJSON(res, 413, { error: 'archive too large' });
-        fs.writeFileSync(tmpTar, abuf);
+        if (received < 100) return sendJSON(res, 400, { error: 'payload too small' });
         fs.rmSync(tmpDir, { recursive: true, force: true });
         fs.mkdirSync(tmpDir, { recursive: true });
         await execFileP('tar', ['-xzf', tmpTar, '-C', tmpDir], { timeout: 120000 });
-        // 客户端以 `-C data archive` 打包，包内带 archive/ 前缀；
-        // 解到将变成 archive 的临时目录后需剥掉一层，避免 archive/archive 嵌套
+        // 兼容两种打包形态：整包 `tar -C data archive`（包内带 archive/ 前缀，
+        // 解到临时目录后需剥掉一层避免 archive/archive 嵌套）；
+        // 增量包 `tar -C data/archive <目录...>`（解出来就是一级目录本身）
         const inner = join(tmpDir, 'archive');
         if (fs.existsSync(inner) && fs.statSync(inner).isDirectory()) {
           const flat = join(__dirname, 'data', 'archive.new.flat');
@@ -376,23 +512,25 @@ function handleRequest(req, res) {
           fs.rmSync(tmpDir, { recursive: true, force: true });
           fs.renameSync(flat, tmpDir);
         }
-        const newCount = countFiles(tmpDir);
-        const oldCount = fs.existsSync(archiveDir) ? countFiles(archiveDir) : 0;
-        // 防误清（2026-08-10 与 sync-upload 同口径）：客户端每轮先拉再推，
-        // 正常回传的新包文件数 ≥ 老包；拉取失败的空工作区只含本轮新增，
-        // 文件数会明显少于老包——此时拒收，避免把服务器存量存档整个换掉
-        if (oldCount > 20 && newCount < Math.ceil(oldCount / 2)) {
-          fs.rmSync(tmpDir, { recursive: true, force: true });
-          return sendJSON(res, 409, { error: `refused: incoming ${newCount} < half of current ${oldCount} files` });
+        // 2026-09-04 存档机制改增量合并（替代原"解包原子替换"）：
+        // 只合并包内出现的目录，其余服务器存量目录一概不动——
+        // 天然不会误删历史，故原"防误清文件数校验"（老包一半规则）随之废除。
+        fs.mkdirSync(archiveDir, { recursive: true });
+        const entries = fs.readdirSync(tmpDir, { withFileTypes: true });
+        let merged = 0;
+        for (const ent of entries) {
+          const src = join(tmpDir, ent.name);
+          const dst = join(archiveDir, ent.name);
+          // 同名覆盖：先删同名再整体搬入（rename 无法覆盖非空目录）
+          fs.rmSync(dst, { recursive: true, force: true });
+          fs.renameSync(src, dst);
+          merged++;
         }
-        // 原子替换：当前目录改名备份 -> 新目录就位 -> 删备份（Windows rename 无法覆盖已存在目录）
-        fs.rmSync(oldBackup, { recursive: true, force: true });
-        if (fs.existsSync(archiveDir)) fs.renameSync(archiveDir, oldBackup);
-        fs.renameSync(tmpDir, archiveDir);
-        fs.rmSync(oldBackup, { recursive: true, force: true });
+        const total = countFiles(archiveDir);
+        fs.rmSync(tmpDir, { recursive: true, force: true });
         fs.rmSync(tmpTar, { force: true });
-        console.log(`[sync] 存档已更新: ${newCount} 个文件`);
-        return sendJSON(res, 200, { ok: true, files: newCount });
+        console.log(`[sync] 存档增量合并: ${merged} 个目录, 共 ${total} 个文件`);
+        return sendJSON(res, 200, { ok: true, merged_dirs: merged, files: total });
       } catch (e) {
         try { fs.rmSync(tmpTar, { force: true }); } catch {}
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
@@ -406,8 +544,7 @@ function handleRequest(req, res) {
   // POST /api/sync-upload（生产数据同步：整库上传+校验+原子替换）
   // 仅当设置了 SYNC_TOKEN 环境变量时启用。上传方携带 x-sync-token 头。
   if (req.method === 'POST' && pathname === '/api/sync-upload') {
-    if (!SYNC_TOKEN) return sendJSON(res, 403, { error: 'sync disabled' });
-    if ((req.headers['x-sync-token'] || '') !== SYNC_TOKEN) return sendJSON(res, 401, { error: 'unauthorized' });
+    if (!authOrFail(res, req, DB_TOKEN, 'sync disabled')) return;
     const chunks = [];
     req.on('data', c => chunks.push(c));
     req.on('end', () => {
@@ -479,7 +616,7 @@ function handleRequest(req, res) {
     if (pathname === '/api/featured') {
       const date = query.date || new Date().toISOString().split('T')[0];
       const rows = db.prepare(`
-        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, published_at, collected_at, tags
+        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags
         FROM articles WHERE date_key = ? AND is_featured = 1 AND category != 'noise'
         ORDER BY ai_score DESC
       `).all(date);
@@ -534,7 +671,7 @@ function handleRequest(req, res) {
 
       const total = db.prepare(`SELECT COUNT(*) as t FROM articles ${whereSQL}`).get(...args).t;
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, published_at, collected_at, tags
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags
         FROM articles ${whereSQL}
         ORDER BY date_key DESC, ai_score DESC LIMIT ? OFFSET ?
       `).all(...args, limit, offset);
