@@ -12,3 +12,24 @@ tmp-*.txt
 *.db.upload-*
 preview-qr.png
 tunnel-*.out
+
+# ---- 仓库卫生(2026-07 实测 git status 未跟踪且未被上面规则排除的内容) ----
+# 归档 tar 与其解包目录(_arc.tar.gz 约 252MB / _arc 约 267MB, 纯历史归档, 不入库)
+pipeline/_arc.tar.gz
+pipeline/_arc/
+# 下划线开头的一次性调试脚本与中间产物(_*.mjs/_*.py/_*.json/_*.html/_*.jpg/_live.db 等);
+# 精确到 pipeline 顶层下划线前缀, 不会命中 collect.mjs / ai-filter.mjs / sources.mjs / tests/
+pipeline/_*
+# pptx 导出产物(AI前沿冲击页系列, 共 10 个); 仓库内没有需要跟踪的 pptx 源文件
+pipeline/*.pptx
+# 与 pptx 配套的渲染图片目录 png_*/
+pipeline/png_*/
+# tmp-* 一次性脚本兜底(上面 tmp-*.mjs/tmp-*.txt 与 *.log 其实已覆盖, 显式声明防新后缀)
+pipeline/tmp-*
+# 本地 SQLite 生产镜像与存档(约 313MB, 数据只在服务器, 永不入库; 仅忽略不移动)
+/data/
+# 部署临时目录
+deploy-tmp/
+# pipeline 日志兜底(*.log 已全局覆盖, 显式声明)
+pipeline/*.log
+# 根目录散落的 *.log 已被第 7 行全局规则覆盖, 无需新规则

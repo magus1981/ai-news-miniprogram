@@ -1,0 +1,22 @@
+# 2026-09-14：生产服务器代码必须与仓库逐字节一致（local-server.mjs 已对齐线上 md5）。
+# Windows 上 git 默认会把 LF 转成 CRLF，一旦触发，下次 checkout 出来的文件就和生产不一致，
+# scp 回服务器后 diff 会显示"整文件重写"，真实分叉就再也看不清了——这正是本次审计发现的
+# "仓库快照落后于生产"问题的成因之一。统一按 LF 存。
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.wxml text eol=lf
+*.wxss text eol=lf
+*.wxs  text eol=lf
+*.md   text
+# 二进制
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.pptx binary
+*.db   binary
+*.gz   binary
