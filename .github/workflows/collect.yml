@@ -23,10 +23,22 @@ on:
 
 jobs:
   collect:
+    # 2026-09-14 数据竞态修复：本 workflow 是"整库 pull → 就地改 → 整库 push"，
+    # 两轮一旦重叠，后推者会拿自己那份旧快照把先推者已入库的新增整个覆盖掉
+    # （服务器 crontab 每天 7 轮，单轮耗时逼近上限时就会撞车）。
+    # 用作业级串行锁排队执行；cancel-in-progress 必须为 false —— 取消在跑的一轮
+    # 等于把那轮的抓取和 LLM 花费全扔掉。
+    concurrency:
+      group: collect-db
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     # 2026-08-11 信源扩到41个后单轮耗时逼近20分钟，14:05轮在总结阶段被超时杀掉
-    # （已筛出的6条当日新闻随job被杀丢失），放宽到35分钟
-    timeout-minutes: 35
+    # （已筛出的6条当日新闻随job被杀丢失），放宽到35分钟。
+    # 2026-09-14 补充：job 级超时是硬杀，被杀时后续步骤一概不执行，
+    # 光给推送步加 if: always() 救不了这条路径——真正的丢数据根因在这里。
+    # 现改为 step 内用 timeout 主动收尾（见 Run collection pipeline），
+    # job 上限留到 40min，给推送和网络余量。
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -83,9 +95,15 @@ jobs:
           # 备用代理（当前机器之心已改用curl-impersonate直连，暂不启用）
           # PROXY_URL: ${{ secrets.SYNC_URL }}
           # PROXY_TOKEN: ${{ secrets.SYNC_TOKEN }}
-        run: node collect.mjs || echo "[WARN] pipeline exited with error, pushing current DB state"
+        # step 内主动收尾（2026-09-14）：33 分钟发 SIGTERM 让 collect.mjs 退出，
+        # 已提交的增量行留在本地库里，紧接着 if: always() 的推送步仍把这一轮成果推上生产。
+        # 旧行为是 job 被 timeout 硬杀 → 本地库连同已筛好的稿件一起消失（8-11 丢 6 条）。
+        run: timeout --preserve-status 33m node collect.mjs || echo "[WARN] pipeline exited with error/timeout, pushing current DB state"
 
       - name: Push DB to production
+        # 前一步失败/超时也照推：服务端 sync-upload 有"新库条数 < 老库一半即 409 拒收"
+        # 的防误清守卫，空工作区误推会被拒，不会覆盖生产
+        if: always()
         working-directory: ./pipeline
         env:
           SYNC_URL: ${{ secrets.SYNC_URL }}
