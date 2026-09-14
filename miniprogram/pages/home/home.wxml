@@ -166,7 +166,8 @@
         </view>
         <block wx:else>
           <article-item wx:for="{{filteredRest}}" wx:key="id" article="{{item}}" />
-          <view class="loading"><text>— {{isToday ? '今日' : '当日'}} {{featuredArticles.length + restArticles.length}} 条已读完 —</text></view>
+          <view wx:if="{{dayTruncated}}" class="section-more">今日共 {{dayTotal}} 条，受单次加载上限本页先按重要度展示前 {{featuredArticles.length + restArticles.length}} 条，其余暂未列出；可下拉刷新看最新入库</view>
+          <view wx:else class="loading"><text>— {{isToday ? '今日' : '当日'}} {{featuredArticles.length + restArticles.length}} 条已读完 —</text></view>
         </block>
       </view>
     </view>

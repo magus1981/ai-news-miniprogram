@@ -20,7 +20,6 @@ function get(path, params = {}) {
       method: 'GET',
       header: {
         'Content-Type': 'application/json',
-        'bypass-tunnel-reminder': 'true',
       },
       success(res) {
         if (res.statusCode === 200) {

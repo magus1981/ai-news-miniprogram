@@ -81,6 +81,8 @@ Page({
     archiveMore: 0,        // 「再看 N 条」的 N：本次已拉取但未展示的条数，0 则不显展开钮
     scoreBandChips: SCORE_BANDS.map(b => (Object.assign({ selected: false }, b))),
     activeBands: [],       // 选中的档位下限列表（空=不筛选）
+    dayTotal: 0,           // 后端返回的当日总条数（category!=noise 全量口径）
+    dayTruncated: false,   // 是否因单请求 50 条硬上限只展示了部分（截断必须显式可见，不能静默丢尾部）
   },
 
   onLoad() {
@@ -142,7 +144,8 @@ Page({
     });
   },
 
-  // 每日仅10-20条，一次拉全，无需分页
+  // 每日常态 10-20 条，一次拉全即可。仅当某日超过后端 50 条硬上限时，
+  // 尾部无法在本请求内取回——不为此重构分页，而是置 dayTruncated 让底部如实提示。
   async loadData() {
     this.setData({ loading: true, error: '' });
     // 先取时间再发请求：水位线只能代表「渲染出来的这份数据」，
@@ -166,6 +169,13 @@ Page({
         rankStr: String(i + 2).padStart(2, '0'),
       }, a)));
 
+      // 截断可见化：单请求受后端 50 条硬上限约束，一旦某日超过 50 条，
+      // 尾部拿不回来。这里用后端回传的 total 与「实际展示的条数」（精选 + 其余，
+      // 口径与顶部 brief-sub、底部「已读完」一致）比对，超了就把截断标志点亮，
+      // 交给列表底部如实提示——绝不让用户对着被砍掉的尾巴误以为"今日已读完"。
+      const dayTotal = articlesRes.total || 0;
+      const shownCount = featured.length + rest.length;
+
       this.setData({
         featuredArticles: featured,
         heroArticle,
@@ -173,6 +183,8 @@ Page({
         restArticles: rest,
         filteredRest: this.filterByCategory(rest, this.data.activeCategory, featured),
         intro: featuredRes.intro || '',
+        dayTotal,
+        dayTruncated: dayTotal > shownCount,
         loading: false,
       });
 
