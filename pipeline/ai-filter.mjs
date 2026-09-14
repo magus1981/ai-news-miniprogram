@@ -958,6 +958,14 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
  *   由 collect.mjs 在写库阶段先删被汰条目再插入新条目（纯函数不做删除副作用）
  */
 export const MAX_REPLACE_PER_ROUND = 5;
+/**
+ * 56-64 分段「数量保障」补齐通道的每日补齐条数上限（2026-09-14 用户定调）。
+ * 原行为：当日不足10条时用 56-64 分稿一直补到 10 条 —— 静日会出现低分稿刷屏
+ * （09-14 当日 7 条中 3 条来自该通道，且同议题不同主体的表态成串入库）。
+ * 现封顶 5 条：静日宁可只发 5-7 条，也不用凑数稿填满版面。
+ * 只对补齐通道生效，不影响 >=65 正常入选与 >=85 突发通道。
+ */
+export const BACKFILL_MAX = 5;
 export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles = []) {
   const isProtectedPolicy = a => a.source_type === 'official' && a.category === 'policy' && a.ai_score >= 70;
   // 被汰豁免：精选条目 + 政策类条目。在库清单查不到 source_type（采集时未落库），
@@ -999,13 +1007,14 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles
   const minScore = existingCount >= 10 ? 70 : 65;
   const qualified = pool.filter(a => a.ai_score >= minScore);
   const selected = qualified.slice(0, capRemaining);
-  // 数量保障只对“当日总数不足10条”生效
-  // （补齐地板56分：按锚点口径56-59属“边缘”上沿，宁可用它凑满当日下限，也有跨期查重与精选门槛兜底）
-  const dayShort = 10 - existingCount - selected.length;
+  // 数量保障只对“当日总数不足10条”生效，且补齐量封顶 BACKFILL_MAX 条
+  // （补齐地板56分：按锚点口径56-59属“边缘”上沿，2026-09-14 起静日最多补5条，
+  //  不再用凑数稿填满到10条；跨期查重与精选门槛仍各自兜底）
+  const dayShort = Math.min(10 - existingCount - selected.length, BACKFILL_MAX);
   if (dayShort > 0) {
     const backfill = pool.filter(a => a.ai_score >= 56 && a.ai_score < minScore).slice(0, dayShort);
     if (backfill.length > 0) {
-      console.log(`数量保障: 当日不足10条，用56-${minScore - 1}分段补入 ${backfill.length} 条`);
+      console.log(`数量保障: 当日不足10条，用56-${minScore - 1}分段补入 ${backfill.length} 条（补齐封顶 ${BACKFILL_MAX} 条）`);
       selected.push(...backfill);
     }
   }

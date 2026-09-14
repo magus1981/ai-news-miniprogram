@@ -12,7 +12,7 @@ import { applyTagInvariants } from '../classify-rules.mjs';
 import {
   parseDupIndexes, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
-  selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND,
+  selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND, BACKFILL_MAX,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
@@ -414,6 +414,21 @@ T('跨日配额: 昨天已满(20)只放行>=85突发，今天不受影响', () =
   const selYestFull = selectByQuota(mkA([90, 84, 80]), 20); // 昨天已满
   return selToday.length >= 10 && selYestFull.length === 1 && selYestFull[0].ai_score === 90;
 });
+// ── 补齐封顶（2026-09-14 用户定调：治 09-14 事故，当日7条中3条来自56-64补齐且同议题刷屏）──
+T('补齐封顶: 静日缺口7条时只补 BACKFILL_MAX 条，不用56-64填满10条', () => {
+  // 候选：3条>=65 正常入选 + 8条落在56-64 → 旧行为补到10条(3+7)，新行为 3+5=8
+  const list = mkA([70, 68, 66, 64, 63, 62, 61, 60, 59, 58, 57]);
+  const sel = selectByQuota(list, 0);
+  const backfilled = sel.filter(a => a.ai_score < 65).length;
+  return sel.length === 3 + BACKFILL_MAX && backfilled === BACKFILL_MAX;
+});
+T('补齐封顶: 缺口小于上限的正常小日不受影响（反例护栏）', () => {
+  // 6条>=65入选，缺口仅4 → 4 < BACKFILL_MAX，应按原样补满4条到10
+  const list = mkA([76, 74, 72, 70, 68, 66, 64, 62, 60, 60, 60]);
+  const sel = selectByQuota(list, 0);
+  return sel.length === 10 && sel.filter(a => a.ai_score < 65).length === 4;
+});
+
 T('政策保护通道: 官方政策>=70配额已满也保送，且不占配额', () => {
   const list = mkA([{ ai_score: 72, source_type: 'official', category: 'policy' }, 90, 84]);
   const sel = selectByQuota(list, 20); // 当日已满：普通通道只放>=85突发
