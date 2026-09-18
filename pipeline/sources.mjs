@@ -123,6 +123,12 @@ export const SOURCES = [
     // source_health 连续三天 raw=0。限到每 8h 最多抓一次（每天约 3 次）把请求频率降下来。
     // 该字段由 collect.mjs 采集循环消费：距上次抓取不足 N 小时则本轮 SKIP，且不写健康行。
     fetchIntervalHours: 72,
+    // 【临时下线·可逆】2026-09-18 用户拍板：429 自 9/4 起持续 14 天（最近 9/16 仍 HTTP 429），
+    // fetchIntervalHours 降到 72h/次仍无解，定性为疑似 TLS 指纹级封锁——降频/中继均绕不过，
+    // 不再空耗轮次，先临时下线止损。enabled:false 使 collect.mjs 既跳过抓取、也不再计入健康告警。
+    // 挂回条件：拿到新出口 IP / 新代理资源后，把 enabled 改回 true（或删除本行）即可原样恢复，
+    // url / 解析 / fetchIntervalHours=72 等参数已全部保留。
+    enabled: false,
   },
   {
     name: 'MIT Tech Review',

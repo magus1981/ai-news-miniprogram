@@ -15,7 +15,7 @@ const now = new Date();
 const dayKey = d => d.toISOString().slice(0, 10);
 
 const db = new Database(DB, { readonly: true });
-const snap = { generated_at: now.toISOString(), days: [], sources_alert: [], archive_mb: 0, ping_hits_3d: [], actions_recent: [], trigger_anomaly: [] };
+const snap = { generated_at: now.toISOString(), days: [], sources_alert: [], sources_offline: [], archive_mb: 0, ping_hits_3d: [], actions_recent: [], trigger_anomaly: [] };
 
 // ---- 数据面：最近4天 ----
 for (let i = 1; i <= 4; i++) {
@@ -40,11 +40,16 @@ for (let i = 1; i <= 4; i++) {
 
 // ---- 信源健康：连续0产出（从最新往前数连续fetched=0） ----
 const alerts = [];
+const offline = [];
+// 临时下线的源（与 pipeline/sources.mjs 的 enabled:false 保持同步，挂回时两处一并改回）：
+// 其历史 0/429 产出行不再刷进 sources_alert，改记入 sources_offline 显式呈现"已下线"状态。
+const OFFLINE = new Set(['VentureBeat']); // 9/18 用户拍板临时下线：429/TLS指纹级封锁，待新出口IP后挂回
 const rows = db.prepare("SELECT source_name, date_key, fetched FROM source_health ORDER BY source_name, date_key DESC").all();
 const bySrc = new Map();
 for (const r of rows) { if (!bySrc.has(r.source_name)) bySrc.set(r.source_name, []); bySrc.get(r.source_name).push(r); }
 const officialSet = new Set(['网信办','工信部','国务院','TC260','国家数据局','国家发改委','北京市政府','上海市政府','浙江省政府','广东省政府','江苏省政府','総務省 MIC','経済産業省 METI','デジタル庁','MSIT 과기정통부','SDAIA 沙特数据AI局','UAE AI News','The Hill Tech','Politico Tech','EU Digital Strategy','OpenAI Blog','Google DeepMind','Google AI','Microsoft AI','NVIDIA Blog','Anthropic','DeepSeek 官方']);
 for (const [name, recs] of bySrc) {
+  if (OFFLINE.has(name)) { offline.push(name); continue; } // 已下线：不进告警，只记入 sources_offline
   let z = 0;
   for (const r of recs) { if (r.fetched === 0) z++; else break; }
   // 与 sources.mjs 各源 alertDays 保持同步(8/28修复调整:网信办14/SDAIA30/广东14/SemiAnalysis周更7)
@@ -53,6 +58,7 @@ for (const [name, recs] of bySrc) {
   if (z >= threshold && recs.length >= threshold) alerts.push({ name, days: z, threshold });
 }
 snap.sources_alert = alerts;
+snap.sources_offline = offline;
 
 // ---- 存储 ----
 // 2026-09-09 口径修正:存档改全量永久保留+回填补档,体积只增不减属预期,250M旧线废弃;唯一硬报警=磁盘水位>75%(disk_alert)
@@ -148,6 +154,6 @@ try {
 }
 
 fs.writeFileSync(OUT, JSON.stringify(snap, null, 1));
-console.log(dayKey(now), 'snapshot OK | days:', snap.days.length, '| alerts:', alerts.length, '| archive:', snap.archive_mb + 'MB', '| disk:', (snap.disk_usage_pct ?? '?') + '%', snap.disk_alert ? 'DISK_ALERT' : '',
+console.log(dayKey(now), 'snapshot OK | days:', snap.days.length, '| alerts:', alerts.length, '| offline:', offline.length, '| archive:', snap.archive_mb + 'MB', '| disk:', (snap.disk_usage_pct ?? '?') + '%', snap.disk_alert ? 'DISK_ALERT' : '',
   '| backup:', snap.backup?.last_ok || 'NONE', `${snap.backup?.kept ?? 0}份`,
   (snap.backup?.alerts?.length ? `BACKUP_ALERT(${snap.backup.alerts.length})` : 'backup-ok'));

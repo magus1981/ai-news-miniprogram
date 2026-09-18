@@ -207,6 +207,7 @@ export function computeHealthAlerts(history, sources) {
   }
   const alerts = [];
   for (const source of sources) {
+    if (source.enabled === false) continue; // 临时下线的源不再计入告警（历史 0 产出行不再刷告警）
     const recs = bySource.get(source.name) || [];
     const threshold = alertThreshold(source);
     let zeroDays = 0;
@@ -246,7 +247,10 @@ async function main() {
       lightMode = ev?.client_payload?.mode === 'light';
     }
   } catch { /* 事件文件解析失败按普通轮处理 */ }
-  const activeSources = lightMode ? SOURCES.filter(isGlobalSource) : SOURCES;
+  // 临时下线的源（enabled:false，如 VentureBeat 429/TLS指纹封锁止损）不参与采集：
+  // 全量轮与凌晨轻量轮都先剔除，挂回只需把 sources.mjs 里的 enabled 改回 true。
+  const enabledSources = SOURCES.filter(s => s.enabled !== false);
+  const activeSources = lightMode ? enabledSources.filter(isGlobalSource) : enabledSources;
 
   console.log('=== AI资讯采集管线启动 ===');
   console.log(`时间: ${new Date().toISOString()}`);
