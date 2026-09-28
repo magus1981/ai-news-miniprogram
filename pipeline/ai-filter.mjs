@@ -1328,6 +1328,7 @@ function fallbackFilter(articles, dayContexts = {}) {
       date_key: dk,
       ai_score: sourceWeights[a.source_type] || 55,
       is_featured: false,
+      _score_fallback: true, // 标记：本轮评分降级（无可信AI分/无事件去重），交 collect 隔离不入主列表
     });
   }
   const out = [];

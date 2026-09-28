@@ -108,15 +108,17 @@ export async function generateSummary(article) {
   const contentLimit = hasFullText ? 6000 : 2000;
   const isEnglish = article.language === 'en';
 
-  // 无API Key时直接截取原文作为摘要
+  // 无API Key = 加工未真正发生，同样标记失败并隔离（不产出半成品混入主列表）
   if (!DASHSCOPE_API_KEY) {
     return {
       ...article,
-      summary: content.slice(0, 500),
+      summary: '',
       tags: '[]',
       takeaway: '',
       key_points: '[]',
       quote: '',
+      _proc_failed: true,
+      _proc_reason: 'DASHSCOPE_API_KEY 未设置',
     };
   }
 
@@ -213,16 +215,20 @@ ${hasFullText ? '原文全文' : '内容片段（非全文，事实不足时宁�
     }
   }
 
-  // 降级：直接使用原始内容截取
+  // 降级：**不伪造半成品**。加工失败的条目打 _proc_failed 标记，交由 collect.mjs 隔离，
+  // 绝不以"原文标题直出 + 空 takeaway + 原文截断摘要"的形式混进主列表。
   const reason = lastErr.name === 'TimeoutError' ? '超时（60秒）' : lastErr.message;
   console.error(`总结生成失败(重试后仍失败): ${article.title}`, reason);
   return {
     ...article,
-    summary: content.slice(0, 500),
-    tags: '[]',
+    // 保留原标题与原素材，字段留空——隔离表按原始素材留存，重跑时再生成
     takeaway: '',
     key_points: '[]',
+    tags: '[]',
     quote: '',
+    summary: '',
+    _proc_failed: true,
+    _proc_reason: reason,
   };
 }
 

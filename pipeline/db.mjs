@@ -74,18 +74,48 @@ export async function initDB() {
       PRIMARY KEY (date_key, source_name)
     )`;
 
+  // 加工隔离/待重跑队列（2026-09-28 事故修复）：翻译+takeaway 失败、评分降级、乱码自检不过的条目
+  // 一律先进这张表，**绝不以半成品进 articles 主列表**；LLM 恢复后由 reprocess-quarantine.mjs 重跑，
+  // 成功后写主列表并从本表删除。按 source_url 唯一，重复采集只更新不堆积。
+  const createQuarantineSQL = `
+    CREATE TABLE IF NOT EXISTS articles_quarantine (
+      source_url TEXT PRIMARY KEY,
+      title TEXT,
+      original_title TEXT,
+      source_name TEXT,
+      category TEXT,
+      language TEXT,
+      source_type TEXT,
+      published_at TEXT,
+      date_key TEXT,
+      ai_score REAL,
+      content TEXT DEFAULT '',
+      content_snippet TEXT DEFAULT '',
+      content_html TEXT DEFAULT '',
+      reason TEXT,
+      failed_stage TEXT,
+      attempts INTEGER DEFAULT 0,
+      quarantined_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`;
+  const idxQ = `CREATE INDEX IF NOT EXISTS idx_quarantine_date ON articles_quarantine(date_key)`;
+
   if (LOCAL_MODE) {
     db.exec(createTableSQL);
     db.exec(idx1);
     db.exec(idx2);
     db.exec(createMetaSQL);
     db.exec(createHealthSQL);
+    db.exec(createQuarantineSQL);
+    db.exec(idxQ);
   } else {
     await db.execute(createTableSQL);
     await db.execute(idx1);
     await db.execute(idx2);
     await db.execute(createMetaSQL);
     await db.execute(createHealthSQL);
+    await db.execute(createQuarantineSQL);
+    await db.execute(idxQ);
   }
   // 列迁移（制度性：表结构自愈）——旧库缺列时自动补建，已存在则忽略 duplicate column 错误
   const migrations = [
@@ -231,6 +261,154 @@ export async function insertArticles(articles) {
 
   console.log(`写入完成: 新增 ${inserted} 条, 跳过 ${skipped} 条(重复)`);
   return { inserted, skipped };
+}
+
+/**
+ * 把加工失败/降级的条目写入隔离队列（待重跑）。按 source_url upsert：
+ * 同一条 URL 反复失败只更新原因与时间，不堆积。返回写入条数。
+ * @param {Array} articles - 带 _proc_failed / _score_fallback / __mojibake 标记的条目
+ * @param {string} [defaultStage] - 失败环节（scoring|summary|charset）
+ */
+export async function insertQuarantine(articles, defaultStage = 'summary') {
+  if (!Array.isArray(articles) || !articles.length) return 0;
+  const sql = `INSERT INTO articles_quarantine
+    (source_url, title, original_title, source_name, category, language, source_type,
+     published_at, date_key, ai_score, content, content_snippet, content_html,
+     reason, failed_stage, attempts, quarantined_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+    ON CONFLICT(source_url) DO UPDATE SET
+      title=excluded.title, original_title=excluded.original_title,
+      source_name=excluded.source_name, category=excluded.category,
+      language=excluded.language, source_type=excluded.source_type,
+      published_at=excluded.published_at, date_key=excluded.date_key,
+      ai_score=excluded.ai_score, content=excluded.content,
+      content_snippet=excluded.content_snippet, content_html=excluded.content_html,
+      reason=excluded.reason, failed_stage=excluded.failed_stage,
+      updated_at=datetime('now')`;
+  let n = 0;
+  for (const a of articles) {
+    const reason = a._proc_reason || a.__reason || (a._score_fallback ? '评分降级（AI不可用）' : defaultStage);
+    const stage = a._score_fallback ? 'scoring' : (a.__mojibake ? 'charset' : defaultStage);
+    const args = [
+      a.source_url, a.title || '', a.original_title || null, a.source_name || '',
+      a.category || '', a.language || '', a.source_type || '',
+      a.published_at || '', a.date_key || '', a.ai_score ?? null,
+      a.content || '', a.content_snippet || '', a.content_html || '',
+      String(reason).slice(0, 300), stage,
+    ];
+    try {
+      if (LOCAL_MODE) db.prepare(sql).run(...args);
+      else await db.execute({ sql, args });
+      n++;
+    } catch (err) {
+      console.error(`隔离写入失败: ${(a.title || a.source_url || '').slice(0, 40)}`, err.message);
+    }
+  }
+  return n;
+}
+
+/** 读取一批待重跑条目（可按发布日过滤），供 reprocess-quarantine.mjs 使用。 */
+export async function getQuarantineBatch(limit = 50, dateKey = null) {
+  const where = dateKey ? `WHERE date_key = ?` : '';
+  const paramList = dateKey ? [dateKey] : [];
+  const sql = `SELECT * FROM articles_quarantine ${where} ORDER BY updated_at ASC LIMIT ?`;
+  const args = [...paramList, limit];
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).all(...args);
+    const r = await db.execute({ sql, args });
+    return r.rows;
+  } catch (err) {
+    console.warn('读取隔离队列失败:', err.message);
+    return [];
+  }
+}
+
+/** 重跑成功后从隔离表删除（按 source_url）。 */
+export async function deleteQuarantineByUrl(sourceUrl) {
+  const sql = `DELETE FROM articles_quarantine WHERE source_url = ?`;
+  try {
+    if (LOCAL_MODE) db.prepare(sql).run(sourceUrl);
+    else await db.execute({ sql, args: [sourceUrl] });
+    return true;
+  } catch (err) {
+    console.warn('删除隔离条目失败:', err.message);
+    return false;
+  }
+}
+
+/** 隔离队列总数（供告警/巡检：积压说明加工持续失败）。 */
+export async function countQuarantine() {
+  try {
+    if (LOCAL_MODE) return db.prepare('SELECT COUNT(*) AS c FROM articles_quarantine').get().c;
+    const r = await db.execute('SELECT COUNT(*) AS c FROM articles_quarantine');
+    return Number(r.rows[0]?.c || 0);
+  } catch { return 0; }
+}
+
+/**
+ * 找出主列表里残留的半成品（历史事故遗留：空 takeaway / 乱码 / 未翻译），
+ * 供 reprocess-quarantine.mjs 就地修复重跑。命中口径与 collect 写库闸门一致。
+ * @param {string} [dateKey] 指定发布日（YYYY-MM-DD），不传则近 3 天
+ */
+export async function getBadMainArticles(dateKey = null) {
+  const dateClause = dateKey
+    ? 'date_key = ?'
+    : `date_key >= date('now', '-3 days')`;
+  const params = dateKey ? [dateKey] : [];
+  // 半成品：空/缺 takeaway，或 title/summary 含 U+FFFD，或 score_detail 显示降级
+  // 注：articles 表无 content_snippet/language/source_type 列，重跑靠 content + 重新抓全文
+  const sql = `SELECT id, title, original_title, source_name, source_url, category,
+      summary, content, content_html, published_at, date_key, ai_score, score_detail
+    FROM articles
+    WHERE category != 'noise' AND (${dateClause})
+      AND (
+        takeaway IS NULL OR TRIM(takeaway) = ''
+        OR instr(COALESCE(title,''), char(65533)) > 0
+        OR instr(COALESCE(summary,''), char(65533)) > 0
+        OR COALESCE(json_extract(NULLIF(score_detail,''), '$.stage'), '') = 'fallback'
+      )`;
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).all(...params);
+    const r = await db.execute({ sql, args: params });
+    return r.rows;
+  } catch (err) {
+    console.warn('查询主列表半成品失败:', err.message);
+    return [];
+  }
+}
+
+/** 就地按 id 重写一条已加工成功的文章字段（重跑回填用）。 */
+export async function updateArticleFromReprocess(id, a) {
+  const sql = `UPDATE articles SET
+      title=?, original_title=?, summary=?, category=?, ai_score=?, is_featured=?,
+      tags=?, takeaway=?, key_points=?, quote=?, score_detail=?, content=?, content_html=?,
+      merged_count=?, event_norm=?
+    WHERE id=?`;
+  const args = [
+    a.title, a.original_title || null, a.summary || '', a.category,
+    a.ai_score ?? null, a.is_featured ? 1 : 0, a.tags || '[]',
+    a.takeaway || '', a.key_points || '[]', a.quote || '',
+    a.score_detail || '', a.content || '', a.content_html || '',
+    a.merged_same_source || 0, a.event_norm || '', id,
+  ];
+  try {
+    if (LOCAL_MODE) { db.prepare(sql).run(...args); return true; }
+    await db.execute({ sql, args });
+    return true;
+  } catch (err) {
+    console.error(`更新重跑条目失败 #${id}:`, err.message);
+    return false;
+  }
+}
+
+/** 按 source_url 删除主列表条目（重跑前清掉旧的半成品行，避免与隔离重跑冲突）。 */
+export async function deleteArticleByUrl(sourceUrl) {
+  const sql = `DELETE FROM articles WHERE source_url = ?`;
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).run(sourceUrl).changes > 0;
+    const r = await db.execute({ sql, args: [sourceUrl] });
+    return true;
+  } catch (err) { console.warn('删除主列表条目失败:', err.message); return false; }
 }
 
 /**

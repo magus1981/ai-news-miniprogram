@@ -14,6 +14,11 @@ import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
+import { readResponseText, decodeBody, mojibakeRatio } from './charset.mjs';
+
+// 入库前正文自检阈值：U+FFFD 占比超过 5% 判定为字符集解码失败（不可逆损坏），
+// 拒写该正文并按"抓取失败"处理（摘要退回 snippet），绝不把乱码带进素材/首页。
+const MOJIBAKE_REJECT_RATIO = 0.05;
 
 const execFileP = promisify(execFile);
 
@@ -201,13 +206,20 @@ export async function archiveArticle(url) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const ctype = resp.headers.get('content-type') || '';
     if (ctype && !/html|xml|text/i.test(ctype)) throw new Error(`非HTML内容: ${ctype}`);
-    const pageHtml = await resp.text();
+    const pageHtml = await readResponseText(resp); // 按正确字符集解码（日文政务源多为 Shift-JIS/EUC-JP）
     const picked = pickContent(pageHtml);
     text = picked.text;
     html = picked.html;
   }
 
   if (!text) return null;
+
+  // 入库前自检：正确解码后仍出现高比例 U+FFFD → 判定该正文被不可逆损坏（字符集识别失败），
+  // 抛错交由 fetchFullContents 按"抓取失败"处理（退回 snippet），绝不把乱码写进素材/首页。
+  const mRatio = mojibakeRatio(text);
+  if (mRatio > MOJIBAKE_REJECT_RATIO) {
+    throw new Error(`正文解码自检失败: U+FFFD 占比 ${(mRatio * 100).toFixed(1)}% > ${(MOJIBAKE_REJECT_RATIO * 100).toFixed(0)}%（疑似字符集识别失败）`);
+  }
 
   // 按URL哈希建目录：同一URL跨轮复采复用目录（覆盖更新），不会重复占盘
   const hash = createHash('sha1').update(url).digest('hex').slice(0, 16);
@@ -310,7 +322,7 @@ const SITE_ADAPTERS = [
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!resp.ok) return null;
-      const html = await resp.text();
+      const html = await readResponseText(resp);
       // 正文容器 <DIV id=BodyLabel>（属性无引号）；内部还嵌套子div，
       // 简单正则非贪婪会在子div处截断，用深度计数取完整容器
       const open = html.search(/<div[^>]*id=["']?BodyLabel["']?/i);
@@ -339,7 +351,7 @@ const SITE_ADAPTERS = [
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!resp.ok) return null;
-      const html = await resp.text();
+      const html = await readResponseText(resp);
       // 正文容器 <div class="ccontent center" id="con_con">，服务端直出；
       // 同样用深度计数取完整容器，避免嵌套div截断
       const open = html.search(/<div[^>]*id=["']?con_con["']?/i);

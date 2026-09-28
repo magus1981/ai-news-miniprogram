@@ -98,7 +98,18 @@ jobs:
         # step 内主动收尾（2026-09-14）：33 分钟发 SIGTERM 让 collect.mjs 退出，
         # 已提交的增量行留在本地库里，紧接着 if: always() 的推送步仍把这一轮成果推上生产。
         # 旧行为是 job 被 timeout 硬杀 → 本地库连同已筛好的稿件一起消失（8-11 丢 6 条）。
-        run: timeout --preserve-status 33m node collect.mjs || echo "[WARN] pipeline exited with error/timeout, pushing current DB state"
+        # 加工质量闸门告警（2026-09-28 修复）：不再用 `|| echo` 吞掉退出码。
+        # collect.mjs 在"有半成品被隔离"或"未捕获异常"时置 exitCode=1 → 本步骤标红触发通知。
+        # 主列表数据已由代码保证干净，隔离表留存待重跑；推送步 if:always() 仍会推已入库的干净数据，
+        # 服务端 sync-upload 有"新库<老库一半即 409 拒收"防误清守卫，故标红不影响安全推送。
+        run: |
+          set +e
+          timeout --preserve-status 33m node collect.mjs
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "[FAIL] 采集/加工环节告警退出 rc=$rc —— 详见上方 [ALERT]；首页主列表已保证无半成品，失败条目已入隔离表待重跑。"
+          fi
+          exit "$rc"
 
       - name: Push DB to production
         # 前一步失败/超时也照推：服务端 sync-upload 有"新库条数 < 老库一半即 409 拒收"

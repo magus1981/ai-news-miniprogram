@@ -8,6 +8,7 @@
  * 2026-08-11 实测无UA要求；非AI条目靠AI筛选闸门过滤。
  */
 import * as cheerio from 'cheerio';
+import { readResponseText } from './charset.mjs';
 
 const RSS = 'https://www.msit.go.kr/user/rss/rss.do?bbsSeqNo=94';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -19,7 +20,7 @@ export async function scrapeMsit(source) {
       signal: AbortSignal.timeout(25000),
     });
     if (!resp.ok) { console.error(`  [FAIL] MSIT爬虫: HTTP ${resp.status}`); return []; }
-    const text = await resp.text();
+    const text = await readResponseText(resp); // 按声明字符集解码（韩国政务源，稳妥起见）
     const $ = cheerio.load(text, { xmlMode: true });
 
     const articles = [];

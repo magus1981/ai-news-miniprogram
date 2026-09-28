@@ -12,6 +12,7 @@
  *    若长期被拦，建议改用浏览器内核抓取或PR TIMES转载站。
  */
 import * as cheerio from 'cheerio';
+import { readResponseText, mojibakeRatio } from './charset.mjs';
 
 const LIST = 'https://www.meti.go.jp/press/';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
@@ -33,7 +34,12 @@ export async function scrapeMeti(source) {
         if (attempt < 2) { await new Promise(r => setTimeout(r, 3000)); continue; }
         return [];
       }
-      const html = await resp.text();
+      const html = await readResponseText(resp); // 按声明字符集解码（日文页可能非 UTF-8）
+      if (mojibakeRatio(html) > 0.05) {
+        console.warn(`  [WARN] 経産省爬虫: 解码后 U+FFFD 占比过高，疑似字符集失败${attempt < 2 ? '，重试' : ''}`);
+        if (attempt < 2) { await new Promise(r => setTimeout(r, 3000)); continue; }
+        return [];
+      }
       if (html.length < 1000) {
         // WAF challenge 返回空壳
         console.warn(`  [WARN] 経産省爬虫: 响应体过短(${html.length}字节)，疑似WAF challenge${attempt < 2 ? '，重试' : ''}`);

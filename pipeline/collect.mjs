@@ -13,10 +13,11 @@ import { pathToFileURL } from 'url';
 import { SOURCES, alertThreshold, isGlobalSource } from './sources.mjs';
 import { filterArticles, RECENT_TITLE_DAYS, beijingDayKey } from './ai-filter.mjs';
 import { fetchFullContents } from './fetch-content.mjs';
+import { readResponseText, mojibakeRatio } from './charset.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
@@ -134,7 +135,8 @@ async function fetchSource(source, attempt = 1) {
       signal: AbortSignal.timeout(20000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const xml = await res.text();
+    const xml = await readResponseText(res); // 按 RSS/HTTP 声明的字符集解码（日文/政务 feed 常为 Shift-JIS/EUC-JP）
+    if (mojibakeRatio(xml) > 0.05) throw new Error(`feed 解码异常: U+FFFD 占比过高（疑似字符集识别失败）`);
     const feed = await parser.parseString(xml);
     const rawCount = (feed.items || []).length;
     const now = Date.now();
@@ -464,12 +466,21 @@ async function main() {
       date_key: a.date_key || beijingDayKey(a.published_at),
     }));
 
-  // 日配额汰换（2026-08-28 Top-20竞争制）：配额已满时新条目顶替在库最低分条目。
-  // selectByQuota 只打 __replaces 标记（纯函数不碰库），删除动作统一在写库前执行——
-  // 被汰条目若在后续环节（时效校验/跨期去重/噪音过滤）随新条目一起被剔除，则不删。
-  // 精选条目（is_featured=1）与官方政策条目在 selectByQuota 内豁免汰换，markFeatured
-  // 为增量标记（按 5-已精选 预算只增不减），精选永不被删，故精选数无需重算。
-  const replacements = finalArticles.filter(a => a.__replaces);
+  // ---- fail-fast 写库闸门（2026-09-28 事故核心修复）----
+  // 半成品判定：加工失败(_proc_failed) / 评分降级(_score_fallback) / takeaway 空 /
+  // 标题或摘要含高比例 U+FFFD。命中者**一律不进主列表**，转隔离队列待 LLM 恢复后重跑。
+  const isHalfProduct = (a) =>
+    a._proc_failed === true ||
+    a._score_fallback === true ||
+    !(a.takeaway && String(a.takeaway).trim()) ||
+    mojibakeRatio(a.title || '') > 0.05 ||
+    mojibakeRatio(a.summary || '') > 0.05;
+  const cleanArticles = finalArticles.filter(a => !isHalfProduct(a));
+  const quarantined = finalArticles.filter(isHalfProduct);
+
+  // 日配额汰换（2026-08-28 Top-20竞争制）：仅在"将真正入库的干净条目"里处理 __replaces——
+  // 绝不能为了顶替旧条而删掉在库好文、结果新条又被隔离（净丢数据）。
+  const replacements = cleanArticles.filter(a => a.__replaces);
   if (replacements.length) {
     console.log(`--- 汰换写库: ${replacements.length} 条新稿顶替在库低分条目 ---`);
     for (const a of replacements) {
@@ -479,12 +490,24 @@ async function main() {
     }
   }
 
-  await insertArticles(finalArticles);
+  await insertArticles(cleanArticles);
 
-  // Step 7: 导语——本轮可能写入多个发布日，逐日基于该日全量已入库文章重生（而非仅本轮），
-  // 保证导语反映该日全天主线；失败不阻塞（前端无导语时不展示）
+  // 隔离 + 告警（失败必须可见：exit 非0 让 Actions 步骤标红、触发通知）
+  if (quarantined.length) {
+    const n = await insertQuarantine(quarantined);
+    const fatalArrears = quarantined.some(a =>
+      /Arrearage|invalid_api_key|overdue|欠费|Incorrect API key|Unauthorized|401|402/i.test(String(a._proc_reason || '')));
+    console.error(`\n!!! [ALERT] 加工质量闸门：本轮 ${quarantined.length} 条未通过（写入隔离表 ${n} 条），已阻止进入首页主列表，待重跑 !!!`);
+    console.error(`    隔离样本: ${quarantined.slice(0, 5).map(a => `${(a.title || a.source_url || '').slice(0, 30)}<${a._score_fallback ? '评分降级' : (a._proc_reason || '加工失败')}>`).join(' , ')}`);
+    if (fatalArrears) {
+      console.error('    根因指向：DashScope 账号欠费/鉴权失败（Arrearage）——非代码问题，需充值/换密钥后由 reprocess-quarantine.mjs 回补。');
+    }
+    process.exitCode = 1; // 让工作流步骤标红告警（DB 已推干净主列表，隔离表留存待重跑）
+  }
+
+  // Step 7: 导语——逐日基于该日全量已入库文章重生；仅在本轮有干净新条目入库的日期重生成
   console.log('--- Step 5: 每日导语 ---');
-  const daysWithNew = [...new Set(finalArticles.map(a => a.date_key))];
+  const daysWithNew = [...new Set(cleanArticles.map(a => a.date_key))];
   for (const d of daysWithNew) {
     const src = await getArticlesByDate(d); // 已包含本轮新写入的
     const intro = await generateDailyIntro(src);
@@ -495,7 +518,7 @@ async function main() {
   }
 
   console.log('\n=== 采集完成 ===');
-  console.log(`本轮新增入库: ${finalArticles.length} 条，涉及发布日 ${daysWithNew.sort().join(', ')}`);
+  console.log(`本轮新增入库: ${cleanArticles.length} 条${quarantined.length ? `，隔离待重跑: ${quarantined.length} 条` : ''}，涉及发布日 ${daysWithNew.sort().join(', ') || '(无)'}`);
   for (const d of daysWithNew.sort()) {
     const dc = await getDayCounts(d);
     console.log(`  ${d} 累计: ${dc.count} 条（精选 ${dc.featured} 条）`);
@@ -505,7 +528,7 @@ async function main() {
   // 看见（2026-08-15事故：两条80+分新闻被杀一整天无人知晓）。每轮末把未入选的
   // 新鲜候选与当日已入选清单做一次主编级对账，疑似重大漏报打印进日志供人工复查。
   console.log('--- Step 6: 漏报对账 ---');
-  await auditMisses({ pool: candidateArticles, admitted: finalArticles, dayArticles: await getArticlesByDate(todayBJ) });
+  await auditMisses({ pool: candidateArticles, admitted: cleanArticles, dayArticles: await getArticlesByDate(todayBJ) });
 }
 
 // 仅当作为脚本直接运行时才执行主流程（便于被测试脚本import）

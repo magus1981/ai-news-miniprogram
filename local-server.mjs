@@ -645,10 +645,20 @@ function handleRequest(req, res) {
       // 每个下限是严格档位区间（如 80 = 80-89），不是“≥80”
       const minScores = String(query.min_scores || '')
         .split(',').map(s => parseInt(s, 10)).filter(n => n > 0 && n <= 100);
+      // 首页质量闸（2026-09-28 修复）：默认 scope=main 只回"精选 或 ai_score>=65"、
+      // 且已真正加工过（takeaway 非空、summary 无 U+FFFD 乱码）的条目；边缘稿(56-64分)、
+      // 未加工/半成品一律不占主列表，交给前端"全部/更多"入口用 scope=all 拉取。宁缺毋滥，绝不硬凑 20 条。
+      const scope = query.scope === 'all' ? 'all' : 'main';
 
       // 动态拼接WHERE条件
       const where = [`category != 'noise'`]; // 噪音文章不在任何列表展示
       const args = [];
+      if (scope === 'main') {
+        where.push(`(is_featured = 1 OR ai_score >= 65)`);
+        where.push(`takeaway IS NOT NULL AND TRIM(takeaway) <> ''`);
+        where.push(`(summary IS NULL OR instr(summary, char(65533)) = 0)`);
+        where.push(`instr(COALESCE(title,''), char(65533)) = 0`);
+      }
       if (date) { where.push('date_key = ?'); args.push(date); }
       if (category && category !== 'all') { where.push('category = ?'); args.push(category); }
       if (tag) {
@@ -678,7 +688,7 @@ function handleRequest(req, res) {
 
       const articles = rows.map(withParsedTags);
       return sendJSON(res, 200, {
-        date: date || 'all', category: category || 'all', tag: tag || null,
+        date: date || 'all', category: category || 'all', tag: tag || null, scope,
         page, page_size: limit,
         total, has_more: offset + articles.length < total, articles,
       });
