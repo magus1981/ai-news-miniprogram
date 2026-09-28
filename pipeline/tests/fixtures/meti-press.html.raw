@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-NPP8R2VV');</script>
+<!-- End Google Tag Manager -->
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta charset="UTF-8">
+<meta name="format-detection" content="telephone=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0">
+<meta name="description" content="">
+<meta name="keywords" content="">
+<link rel="shortcut icon" href="/files/000000036.ico">
+<title>ニュースリリース（METI/経済産業省）</title>
+<link rel="stylesheet" media="screen" href="/css_2025/style.css">
+<link rel="stylesheet" media="print" href="/css_2025/print.css">
+<link rel="stylesheet" href="/css_2025/aly.css">
+<link href="/icomoon/style.css" rel="stylesheet">
+<script src="/js_2025/jquery-3.2.1.min.js"></script>
+<script src="/js_2025/jquery-migrate.js"></script>
+<script src="/js_2025/jquery.matchHeight-min.js"></script>
+<script src="/js_2025/base.js"></script>
+<script src="/js_2025/ewbc.min.js" id="pt_loader"></script>
+
+<script>
+$(function(){
+   // #で始まるアンカーをクリックした場合に処理
+   $('a[href^="#"],area[href^="#"]').click(function() {
+      // スクロールの速度
+      var speed = 400; // ミリ秒
+      // アンカーの値取得
+      var href= $(this).attr("href");
+      // 移動先を取得
+      var target = $(href == "#" || href == "" ? 'html' : href);
+      // 移動先を数値で取得
+      var position = target.offset().top;
+      // スムーススクロール
+      $('body,html').animate({scrollTop:position}, speed, 'swing');
+      if (href == "#pagetop") {
+        $('h1.top_logo a').focus();
+      }
+      return false;
+   });
+});
+</script>
+
+</head>
+
+<body id="pagetop">
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NPP8R2VV"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<script src="/js_2025/header.js"></script>
+<script src="/js_2025/msearch.js"></script>
+  <noscript><div class="jsOn">すべての機能をご利用いただくにはJavascriptを有効にしてください。Javascriptを無効のまま閲覧される方は<a href="sitemap/index.html">サイトマップからページをご覧ください。</a></div></noscript>
+  <div id="main" tabindex="120">
+    <div class="bg-g">
+      <div class="w1000">
+        <div class="clearfix">
+          <div class="btn clearfix">
+            <div class="border-btn pc"><a href="/english/press/index.html" tabindex="110">English</a></div>
+            <div class="border-btn pc"><a href="javascript:void(0)" onclick="window.print();return false;" tabindex="110"><span class="icon-copy"></span>印刷</a></div>
+          </div>
+          <div class="pan">
+            <ol>
+              <li><a href="/index.html" tabindex="100">ホーム</a></li>
+              <li>ニュースリリース</li>
+            </ol>
+          </div>
+        </div>
+        <h1 id="MainContentsArea">ニュースリリース</h1>
+      </div>
+    </div>
+    <div class="w1000 clearfix mb10">
+      <div class="btn btn_en sp pc_none">
+        <div class="border-btn"><a href="/english/press/index.html">English</a></div>
+      </div>
+    </div>
+    <div class="main w1000">
+      <h2>カテゴリーから選ぶ</h2>
+      <ul class="clearfix category_box">
+        <li class="bg01"><a href="/press/category_01.html" class="clearfix"><span class="icon-seisaku01"></span><p>経済産業</p></a></li>
+        <li class="bg02"><a href="/press/category_02.html" class="clearfix"><span class="icon-seisaku02"></span><p>対外経済</p></a></li>
+        <li class="bg03"><a href="/press/category_03.html" class="clearfix"><span class="icon-seisaku03"></span><p>ものづくり/<br class="pc">情報/<br class="pc">流通・サービス</p></a></li>
+        <li class="bg04"><a href="/press/category_04.html" class="clearfix"><span class="icon-seisaku04"></span><p>中小企業・地域経済産業</p></a></li>
+        <li class="bg05"><a href="/press/category_05.html" class="clearfix"><span class="icon-seisaku05"></span><p>エネルギー・環境</p></a></li>
+        <li class="bg06"><a href="/press/category_06.html" class="clearfix"><span class="icon-seisaku06"></span><p>安全・安心</p></a></li>
+        <li class="bg07"><a href="/press/category_07.html" class="clearfix"><span class="icon-etc"></span><p>その他</p></a></li>
+      </ul>
+      <h2>最新ニュースリリース</h2>
+<ul class="clearfix float_li">
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000081.jpg" alt="経済産業">
+    </div>
+    <div class="left txt_box"><p>2026年9月25日</p><a class="cut_txt" href="/press/2026/09/20260925002.html">「日本スタートアップ大賞2026」の表彰式を行いました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月25日</p><a class="cut_txt" href="/press/2026/09/20260925004.html">中部電力株式会社から8月27日に行った報告徴収命令に対する回答を受領し、追加報告を求めました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000083.jpg" alt="安全・安心">
+    </div>
+    <div class="left txt_box"><p>2026年9月25日</p><a class="cut_txt" href="/press/2026/09/20260925001.html">2025年度（令和7年度）消費者相談報告書をとりまとめました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000081.jpg" alt="経済産業">
+    </div>
+    <div class="left txt_box"><p>2026年9月25日</p><a class="cut_txt" href="/press/2026/09/20260925003.html">Global Startup EXPO 2026（GSE2026）にノーベル賞受賞者や著名VC等が集結します</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000080.jpg" alt="中小企業・地域経済産業">
+    </div>
+    <div class="left txt_box"><p>2026年9月24日</p><a class="cut_txt" href="/press/2026/09/20260924001.html">令和8年台風第25号に伴う災害に関して被災中小企業・小規模事業者支援措置を行います</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000082.jpg" alt="対外経済">
+    </div>
+    <div class="left txt_box"><p>2026年9月23日</p><a class="cut_txt" href="/press/2026/09/20260923001.html">赤澤経済産業大臣がフィリピン共和国及びタイ王国に出張しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月18日</p><a class="cut_txt" href="/press/2026/09/20260918002.html">第70回国際原子力機関（IAEA）総会において、「東京電力福島第一原子力発電所の廃炉と福島の復興」に関する情報発信を行いました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月18日</p><a class="cut_txt" href="/press/2026/09/20260918003.html">越智経済産業大臣政務官がG20豊富なエネルギーに関する大臣会合に出席しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月17日</p><a class="cut_txt" href="/press/2026/09/20260917005.html">関西電力株式会社に対して電気事業法に基づく報告を求めました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月17日</p><a class="cut_txt" href="/press/2026/09/20260917003.html">官民連携でサーキュラーエコノミーを推進する 「サーキュラーエコノミーアクションWeek」を開催します</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000084.jpg" alt="その他">
+    </div>
+    <div class="left txt_box"><p>2026年9月17日</p><a class="cut_txt" href="/press/2026/09/20260917004.html">「技術革新と人類社会の未来 中間報告書―価値主導型イノベーション・ガバナンスに向けて―」を公表しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000079.jpg" alt="ものづくり/情報/流通・サービス">
+    </div>
+    <div class="left txt_box"><p>2026年9月17日</p><a class="cut_txt" href="/press/2026/09/20260917002.html">外国人旅行者向け消費税免税制度に関する免税店への「リファンド方式移行の準備ガイド」を作成しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000082.jpg" alt="対外経済">
+    </div>
+    <div class="left txt_box"><p>2026年9月15日</p><a class="cut_txt" href="/press/2026/09/20260915002.html">山田経済産業副大臣がカザフスタン共和国、ウズベキスタン共和国及びトルクメニスタンに出張しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000083.jpg" alt="安全・安心">
+    </div>
+    <div class="left txt_box"><p>2026年9月15日</p><a class="cut_txt" href="/press/2026/09/20260915001.html">中小企業向け「サイバーセキュリティお助け隊サービス（新類型）」 実証事業を開始します</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月14日</p><a class="cut_txt" href="/press/2026/09/20260914003.html">越智経済産業政務官がAPEC（アジア太平洋経済協力）エネルギー大臣会合に出席しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000079.jpg" alt="ものづくり/情報/流通・サービス">
+    </div>
+    <div class="left txt_box"><p>2026年9月14日</p><a class="cut_txt" href="/press/2026/09/20260914001.html">AIの開発・提供・利用の現場における課題に関する事例を募集します</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月14日</p><a class="cut_txt" href="/press/2026/09/20260914006.html">赤澤経済産業大臣がビロル国際エネルギー機関（IEA）事務局長と会談を行いました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月14日</p><a class="cut_txt" href="/press/2026/09/20260914007.html">LNG産消会議2026を開催しました</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000080.jpg" alt="中小企業・地域経済産業">
+    </div>
+    <div class="left txt_box"><p>2026年9月14日</p><a class="cut_txt" href="/press/2026/09/20260914002.html">令和8年熊本地震に係るセーフティネット保証4号の指定地域を拡大します</a></div>
+  </li>
+  <li class="clearfix">
+    <div class="left img_box">
+      <img src="/files/000000078.jpg" alt="エネルギー・環境">
+    </div>
+    <div class="left txt_box"><p>2026年9月11日</p><a class="cut_txt" href="/press/2026/09/20260911003.html">一般送配電事業者8社から託送供給等約款の変更届出を受理しました</a></div>
+  </li>
+</ul>
+
+    </div>
+    <div class="w1000 clearfix">
+<a href="/press/archive.html" class="lnkPosR">アーカイブはこちら</a>
+    </div>
+    <div class="w1000 b-top">
+<p>ニュースリリースは過去3年度分を掲載しています。<br>
+	上記以前のニュースリリースは国立国会図書館の<a href="http://warp.da.ndl.go.jp/waid/3479">「インターネット資料収集保存事業（<span lang="en">Web Archiving Project</span>）」ホームページ</a>でご覧になることができます。</p>
+
+    </div>
+  </div>
+<script src="/js_2025/footer.js"></script>
+</body>
+</html>

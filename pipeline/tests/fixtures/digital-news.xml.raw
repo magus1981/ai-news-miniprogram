@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0" xml:base="https://www.digital.go.jp/">
+  <channel>
+    <title>デジタル庁 新着・更新</title>
+    <link>https://www.digital.go.jp/</link>
+    <description>デジタル庁ウェブサイトの新着・更新情報</description>
+    <language>ja</language>
+    
+    <item>
+  <title>塩崎デジタル副大臣のプロフィールを掲載しました</title>
+  <link>https://www.digital.go.jp/about/member/shiozakiakihisa</link>
+  <description/>
+  <pubDate>Mon, 28 Sep 2026 16:30:53 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>組織情報</category>
+    <guid isPermaLink="false">8118b18a-d195-4df3-b4b6-3b3a77ddbb32</guid>
+    </item>
+<item>
+  <title>赤松デジタル大臣政務官のプロフィールを掲載しました</title>
+  <link>https://www.digital.go.jp/about/member/akamatsuken</link>
+  <description/>
+  <pubDate>Mon, 28 Sep 2026 16:30:45 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>組織情報</category>
+    <guid isPermaLink="false">5350b1f7-d482-471c-afcf-52de105c4de1</guid>
+    </item>
+<item>
+  <title>古川大臣記者会見（令和8年9月25日）要旨を掲載しました</title>
+  <link>https://www.digital.go.jp/speech/minister-260925-01</link>
+  <description/>
+  <pubDate>Mon, 28 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>会見</category>
+    <guid isPermaLink="false">8f0093bb-5947-4d69-a5a9-f41b488d0638</guid>
+    </item>
+<item>
+  <title>ご意見・ご要望に「アドレス・ベース・レジストリに関するお問合せ」のフォームを掲載しました</title>
+  <link>https://www.digital.go.jp/contact</link>
+  <description/>
+  <pubDate>Mon, 28 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>政策</category>
+    <guid isPermaLink="false">771bac0e-6089-4cf1-a8a9-dafcd0628899</guid>
+    </item>
+<item>
+  <title>令和8年度 属性証明の課題整理に関する有識者会議（第1回）の資料を掲載しました</title>
+  <link>https://www.digital.go.jp/councils/vc-diw-governance/c164f224-cd22-4d66-9d50-1c1b42daca65</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 17:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>会議等</category>
+    <guid isPermaLink="false">a304e880-615c-4097-9509-852fddd9b4ed</guid>
+    </item>
+<item>
+  <title>令和9年度「政策評価調書」を掲載しました</title>
+  <link>https://www.digital.go.jp/budget/r9request</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>政策</category>
+    <guid isPermaLink="false">c3ef05b5-6cef-491c-a024-bd2215856b2a</guid>
+    </item>
+<item>
+  <title>JP PINTの「グローバルの取組（国際会議等）」を更新しました</title>
+  <link>https://www.digital.go.jp/policies/electronic_invoice/global-activities</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>政策</category>
+    <guid isPermaLink="false">5d4aa95a-115b-4056-8915-3a38f3fbf8b7</guid>
+    </item>
+<item>
+  <title>デジタル推進委員向けのデジタル情報をまとめて案内するページ「教える人のためのデジタル情報ひろば」を更新しました</title>
+  <link>https://www.digital.go.jp/policies/digital_promotion_staff/curation</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>政策</category>
+    <guid isPermaLink="false">80385e62-316f-49e5-a24b-a38a6228ed8e</guid>
+    </item>
+<item>
+  <title>公金受取口座の登録状況に関するダッシュボードを更新しました</title>
+  <link>https://www.digital.go.jp/resources/govdashboard/account_registration_status</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>資料</category>
+    <guid isPermaLink="false">0a3202ad-6f5c-4a0e-aacb-a5008aa5daa0</guid>
+    </item>
+<item>
+  <title>大臣・副大臣・大臣政務官の交代式を行いました</title>
+  <link>https://www.digital.go.jp/news/efdd742c-aa9b-4482-8842-0e172fa9b78b</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>報道発表</category>
+    <guid isPermaLink="false">efdd742c-aa9b-4482-8842-0e172fa9b78b</guid>
+    </item>
+<item>
+  <title>古川大臣記者会見（令和8年9月25日）動画を掲載しました</title>
+  <link>https://www.digital.go.jp/speech/minister-260925-01</link>
+  <description/>
+  <pubDate>Fri, 25 Sep 2026 12:00:19 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>会見</category>
+    <guid isPermaLink="false">6fcf1df6-85ff-43a3-9fa2-76fe6f27bd31</guid>
+    </item>
+<item>
+  <title>2026年度 一般職（高卒者）官庁訪問の予約フォームを公開しました</title>
+  <link>https://www.digital.go.jp/recruitment/newgraduates/2026-governmentofficevisit-clericalposition-highschoolgraduate</link>
+  <description/>
+  <pubDate>Thu, 24 Sep 2026 15:00:00 +0900</pubDate>
+    <dc:creator>デジタル庁</dc:creator>
+    <category>採用</category>
+    <guid isPermaLink="false">faa02818-4179-4d3c-8daa-1721d5d4c402</guid>
+    </item>
+
+  </channel>
+</rss>
