@@ -814,6 +814,9 @@ function handleRequest(req, res) {
       const filter = `
         FROM articles
         WHERE category != 'noise'
+          AND takeaway IS NOT NULL AND TRIM(takeaway) <> ''
+          AND instr(COALESCE(title,''), char(65533)) = 0
+          AND (summary IS NULL OR instr(summary, char(65533)) = 0)
           AND date_key < ? AND date_key >= date(?, '-${CATCHUP_WINDOW_DAYS} days')
           AND collected_at > datetime(?)
       `;
@@ -850,7 +853,12 @@ function handleRequest(req, res) {
       const category = query.category;
       const limit = Math.min(30, parseInt(query.limit) || 10);
 
-      const where = [`category != 'noise'`, `date_key < ?`, `date_key >= date(?, '-${ARCHIVE_WINDOW_DAYS} days')`];
+      const where = [`category != 'noise'`,
+        // 半成品不展示：无 takeaway 或标题/摘要含 U+FFFD（与首页质量闸同口径）
+        `takeaway IS NOT NULL AND TRIM(takeaway) <> ''`,
+        `(summary IS NULL OR instr(summary, char(65533)) = 0)`,
+        `instr(COALESCE(title,''), char(65533)) = 0`,
+        `date_key < ?`, `date_key >= date(?, '-${ARCHIVE_WINDOW_DAYS} days')`];
       const args = [before, before];
       if (category && category !== 'all') { where.push('category = ?'); args.push(category); }
       const filter = `FROM articles WHERE ${where.join(' AND ')}`;
