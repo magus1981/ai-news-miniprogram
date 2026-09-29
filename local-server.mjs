@@ -347,6 +347,25 @@ const MAIN_FALLBACK_TARGET = 10;         // 触发后至少凑到的条数
 const FALLBACK_MIN_BODY_CHARS = 60;      // 正文/片段低于此字数视为严重截断，不展示
 const FALLBACK_MAX_FFFD_PCT = 5;         // 正文 U+FFFD 占比超过 5% 视为乱码，不展示
 
+// ===== 政策稿主列表降档（2026-09-29，仅展示层，不动采集与评分）=====
+// 政策稿是官方通稿体、缺技术冲击词，AI 评分系统性偏低，65 分主列表闸会把 60-64 档
+// 的政策进展整段挡在首页外。注意 ai-filter 的「每日政策保底 2 条」只保底**入库**，
+// 管不到**展示**——入库后再被 65 分闸拦掉，保底配额等于白给。故展示层单独给政策
+// 维度降到 60 分，让两道闸口径接得上。
+// 红线：只降分数档，不降质量档——非政策稿仍是 65，加工合格三条件（takeaway 非空、
+// summary 无 U+FFFD、title 无 U+FFFD）一律照旧，半成品不会因为这条改动蒙混过关。
+const MAINLIST_POLICY_MIN_SCORE = 60;
+// 政策源名单直接从 pipeline/sources.mjs 派生，不手抄，避免与信源配置漂移。
+// 必须再叠 source_type==='official'：The Hill / Politico 在信源配置里 category 也是
+// 'policy'（政策线媒体），但它们是媒体不是政策发布主体——若只按 category 筛，
+// 实测会放出一条 The Hill 的 opinion 专栏（63 分）进主列表，那不是"政策稿放宽"的本意。
+// official 政策源即发改委/工信部/网信办/国务院/各省市府等，与需求点名的口径一致。
+// 另：articles.category 是逐篇复核结果、可能与信源默认分类不一致（如 Ars Technica AI
+// 的政策稿判成 policy），故 category='policy' 与官方政策源两条取并集，任一命中即算政策稿。
+const POLICY_SOURCE_NAMES = SOURCES
+  .filter(s => s.category === 'policy' && s.source_type === 'official')
+  .map(s => s.name);
+
 // 判定「AI 服务故障导致的隔离」而非「垃圾内容导致的隔离」：
 // 只有 failed_stage 卡在加工环节、且 reason 明确是 DashScope 侧报错的才进兜底池。
 const FALLBACK_API_ERROR_PATTERNS = [
@@ -759,7 +778,14 @@ function handleRequest(req, res) {
       const where = [`category != 'noise'`]; // 噪音文章不在任何列表展示
       const args = [];
       if (scope === 'main') {
-        where.push(`(is_featured = 1 OR ai_score >= 65)`);
+        // 政策稿按 MAINLIST_POLICY_MIN_SCORE 降档放行，其余仍须 65（口径见常量注释）。
+        // 注意：占位符与其参数必须在这里同步 push——where 数组的拼接顺序决定 args 的消费顺序，
+        // 插到 date/category 之后会把整条 SQL 的参数错位。
+        const policyPh = POLICY_SOURCE_NAMES.map(() => '?').join(',');
+        where.push(
+          `(is_featured = 1 OR ai_score >= 65 OR (ai_score >= ? AND (category = 'policy' OR source_name IN (${policyPh}))))`
+        );
+        args.push(MAINLIST_POLICY_MIN_SCORE, ...POLICY_SOURCE_NAMES);
         where.push(`takeaway IS NOT NULL AND TRIM(takeaway) <> ''`);
         where.push(`(summary IS NULL OR instr(summary, char(65533)) = 0)`);
         where.push(`instr(COALESCE(title,''), char(65533)) = 0`);
