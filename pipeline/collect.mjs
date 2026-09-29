@@ -17,11 +17,13 @@ import { readResponseText, mojibakeRatio } from './charset.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine, findExistingByTitleNorm, findExistingByEventNorm, bumpMergedCount } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
 import { auditMisses } from './miss-audit.mjs';
+import { resolvePublishedAt, extractPublishedFromUrl, extractPublishedFromHtml } from './date-extract.mjs';
+import { normalizeUrl, normalizeTitle, isDedupableTitle } from './normalize.mjs';
 import { scrapeQbitai } from './scraper-qbitai.mjs';
 import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
 import { scrapeAnthropic } from './scraper-anthropic.mjs';
@@ -93,16 +95,27 @@ function isOfficialSource(source) {
 }
 
 /**
- * 把原始日期串规范化为ISO格式入库
- * 解析失败时用当前时间兜底并打印警告
+ * 把原始日期串规范化为ISO格式入库。
+ *
+ * 2026-09-29 事故修复：过去对"无日期"一律用当前时间兜底 → 旧闻冒充今日稿、
+ * date_key 落到采集日、参与精选评分。现改为三级兜底：
+ *   1. 原始 pubDate 可解析 → 直接用；
+ *   2. 从 URL 中提取发布日期（政务站 `t20251013_xxx.html`、通用 `/2026/09/29/slug` 等）；
+ *   3. 都提不到 → 返回空串 ''，调用方在源头标 `_date_unknown=true` 走"未知日期"通道。
+ *      绝不再用 Date.now() 兜底。
  */
-export function normalizePublishedAt(raw, sourceName, title) {
+export function normalizePublishedAt(raw, sourceName, title, sourceUrl) {
   if (raw) {
     const d = new Date(raw);
     if (!isNaN(d.getTime())) return d.toISOString();
   }
-  console.warn(`  [WARN] ${sourceName} 条目日期缺失或解析失败，使用当前时间兜底: "${raw || '(无日期)'}" | ${title || ''}`);
-  return new Date().toISOString();
+  const urlIso = extractPublishedFromUrl(sourceUrl);
+  if (urlIso) {
+    console.warn(`  [DATE-RESQ] ${sourceName} 原始日期缺失，从 URL 恢复: ${urlIso} | ${title || ''}`);
+    return urlIso;
+  }
+  console.warn(`  [DATE-UNKNOWN] ${sourceName} 无发布日期且 URL 无日期段，标 date_unknown: "${raw || '(无日期)'}" | ${title || ''}`);
+  return '';
 }
 
 /**
@@ -116,8 +129,19 @@ export function filterByFreshness(articles, source) {  const now = Date.now();
   const cutoff = now - (official ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 60 * 60 * 1000;
 
   return articles.filter(a => {
+    // date_unknown：走"未知日期"专用通道，直接放行给下游归入 date_key='unknown'，
+    // 不参与"今日"主列表、不评精选、仅 scope=all 可见（2026-09-29 事故修复）
+    if (a._date_unknown) return true;
     const ts = a.published_at ? new Date(a.published_at).getTime() : NaN;
-    if (isNaN(ts)) return official; // 官方源无日期放行
+    if (isNaN(ts)) {
+      // 采集器直接返回 null/空 published_at 时，走 URL/HTML 兜底再判一次；
+      // 仍失败 → 标 _date_unknown 放行（不再冒充今日稿，见 normalizePublishedAt 注释）
+      const rescued = resolvePublishedAt(a);
+      if (rescued) { a.published_at = rescued; return true; }
+      a._date_unknown = true;
+      a.published_at = '';
+      return true;
+    }
     if (ts > now + MAX_FUTURE_MS) return false; // 未来日期一律剔除
     return ts >= cutoff;
   });
@@ -152,16 +176,26 @@ async function fetchSource(source, attempt = 1) {
         if (ts > now + MAX_FUTURE_MS) return false; // 未来日期一律剔除
         return ts >= cutoff;
       })
-      .map(item => ({
-        title: (item.title || '').trim(),
-        source_name: source.name,
-        source_url: item.link || '',
-        category: source.category,
-        language: source.language,
-        source_type: source.source_type,
-        content_snippet: (item.contentSnippet || item.content || item.summary || '').slice(0, 2000),
-        published_at: normalizePublishedAt(item.pubDate, source.name, item.title),
-      }))
+      .map(item => {
+        const pub = normalizePublishedAt(item.pubDate, source.name, item.title, item.link);
+        const art = {
+          title: (item.title || '').trim(),
+          source_name: source.name,
+          source_url: item.link || '',
+          category: source.category,
+          language: source.language,
+          source_type: source.source_type,
+          content_snippet: (item.contentSnippet || item.content || item.summary || '').slice(0, 2000),
+          published_at: pub,
+        };
+        // normalizePublishedAt 已经尝试过 URL 救援；仍为空 → 再试一次从 snippet/HTML 提日期
+        if (!art.published_at) {
+          const htmlIso = extractPublishedFromHtml(art.content_snippet);
+          if (htmlIso) art.published_at = htmlIso;
+        }
+        if (!art.published_at) art._date_unknown = true;
+        return art;
+      })
       .filter(a => a.title && a.source_url); // 过滤无效条目
 
     console.log(`  [OK] ${source.name}: ${articles.length} 条`);
@@ -316,26 +350,129 @@ async function main() {
     return;
   }
 
-  // Step 3: 去重（批内按URL）
+  // Step 3: 去重（批内按 URL；2026-09-29 事故修复：改用归一化 URL，堵住 utm_/spm/尾斜杠
+  // 差异导致的同一条稿被不同来源/不同参数入库两次）
   const seen = new Set();
   const batchUnique = allArticles.filter(a => {
-    if (seen.has(a.source_url)) return false;
-    seen.add(a.source_url);
+    const k = normalizeUrl(a.source_url);
+    if (seen.has(k)) return false;
+    seen.add(k);
     return true;
   });
 
+  // Step 3.4: 批内标题归一化去重（2026-09-29 事故修复：同一天两条《互联网平台价格行为规则》
+  // 因 source_url 不同被双双入库）。仅完全等价（去装饰性标点后字符串相等）才合并，
+  // 保留 published_at 非空/最早那条为主条，同 URL 走合并、异 URL 视为同事件的两家转载，
+  // 保留最早那条、其余只累加 merged_count 不再走 AI 评分。
+  const byTitle = new Map();
+  const titleMerged = [];
+  let titleDupDropped = 0;
+  for (const a of batchUnique) {
+    const tn = normalizeTitle(a.title);
+    if (!isDedupableTitle(tn)) { titleMerged.push(a); continue; }
+    const prevIdx = byTitle.get(tn);
+    if (prevIdx == null) {
+      byTitle.set(tn, titleMerged.length);
+      titleMerged.push(a);
+      continue;
+    }
+    const prev = titleMerged[prevIdx];
+    // 择主：非空 published_at 优先；两者都有则取更早者；都无日期则保留先入者。
+    const prevTs = prev.published_at ? Date.parse(prev.published_at) : Infinity;
+    const curTs = a.published_at ? Date.parse(a.published_at) : Infinity;
+    const keep = curTs < prevTs ? a : prev;
+    const drop = keep === a ? prev : a;
+    if (keep !== prev) titleMerged[prevIdx] = keep;
+    keep.merged_same_source = (keep.merged_same_source || 0) + 1 + (drop.merged_same_source || 0);
+    titleDupDropped++;
+  }
+  if (titleDupDropped) console.log(`批内标题归一化合并: 剔除 ${titleDupDropped} 条同标题重复产物`);
+
   // Step 3.5: 入库前硬过滤——剔除已在库中的文章（制度性保障：
   // 旧文章不进入AI筛选，不占用当日20条入选名额，避免写库时才被跳过）
-  const existingUrls = await getExistingUrls(batchUnique.map(a => a.source_url));
-  const uniqueArticles = batchUnique.filter(a => !existingUrls.has(a.source_url));
-  const oldDropped = batchUnique.length - uniqueArticles.length;
-  console.log(`去重后: ${uniqueArticles.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}`);
+  // 2026-09-29 修复：getExistingUrls 已扩展为按 source_url ∪ url_norm 双路命中。
+  const existingUrls = await getExistingUrls(titleMerged.map(a => a.source_url));
+  const notUrlDup = titleMerged.filter(a => !existingUrls.has(a.source_url));
+  const oldDropped = titleMerged.length - notUrlDup.length;
+  console.log(`去重后: ${notUrlDup.length} 条${oldDropped ? `（剔除已入库旧文章 ${oldDropped} 条）` : ''}`);
+
+  // Step 3.5a: 跨库标题 / 事件名合并（2026-09-29 事故修复：
+  // 《互联网平台价格行为规则》同一天两条、《跨省跨区电力应急调度管理办法》两条，
+  // 因 source_url 与 URL 归一化都不同、批内标题合并也没抓住（分别落在两轮采集里），
+  // AI 跨期事件去重又被同主体不同事件误伤门槛放行 → 双双入库。
+  // 现在写库前按 title_norm / event_norm 精确对照近 10 天已入库：命中即保留更早/有日期的那条为主，
+  // 新条不入正式主列表、只 bumpMergedCount 记一笔合并数。
+  const normTitles = notUrlDup.map(a => normalizeTitle(a.title)).filter(isDedupableTitle);
+  const hitByTitle = normTitles.length ? await findExistingByTitleNorm(normTitles, 10) : new Map();
+  const keptAfterTitleDup = [];
+  let crossTitleMerged = 0;
+  for (const a of notUrlDup) {
+    const tn = normalizeTitle(a.title);
+    const hits = tn ? hitByTitle.get(tn) : null;
+    if (hits && hits.length) {
+      const curTs = a.published_at ? Date.parse(a.published_at) : Infinity;
+      const earliest = hits.reduce((m, h) => {
+        const ts = h.published_at ? Date.parse(h.published_at) : Infinity;
+        return ts < m.ts ? { id: h.id, ts } : m;
+      }, { id: hits[0].id, ts: hits[0].published_at ? Date.parse(hits[0].published_at) : Infinity });
+      if (curTs < earliest.ts) {
+        // 新条发布时间更早：保留新条为主，把老早条降级为合并目标（后续一次性脚本清理）。
+        await bumpMergedCount(earliest.id, 1);
+        a.merged_same_source = (a.merged_same_source || 0) + 1;
+      } else {
+        await bumpMergedCount(earliest.id, 1);
+      }
+      crossTitleMerged++;
+      continue;
+    }
+    keptAfterTitleDup.push(a);
+  }
+  if (crossTitleMerged) console.log(`跨库标题归一化合并: ${crossTitleMerged} 条命中已入库同标题稿件，走 merged_count 累加、不重复入库`);
+
+  // Step 3.52: 日期未识出稿件分流（2026-09-29 事故修复）
+  // 无发布日期（RSS/pubDate、URL、正文/meta 三级都提不到）的稿件不再冒充"今日新稿"：
+  //   - 不进 AI 筛选、不占当日 20 条入选名额、不评 is_featured；
+  //   - 单独以 date_key='unknown'、date_unknown=1 落库，仅 scope=all 可见；
+  //   - 前端在条目上标"日期未知"字段（date_unknown: true）。
+  // 缺失率 >20% 打红告警（沿用 fail-fast 路径：process.exitCode=1 让 Actions 步骤标红），
+  // 提示"信源大面积丢日期"或"采集器解析回归"，避免静默污染。
+  const knownArticles = [];
+  const unknownArticles = [];
+  for (const a of keptAfterTitleDup) {
+    if (a._date_unknown || !a.published_at) {
+      a._date_unknown = true;
+      a.published_at = '';
+      a.date_key = 'unknown';
+      unknownArticles.push(a);
+    } else {
+      knownArticles.push(a);
+    }
+  }
+  const totalIngested = knownArticles.length + unknownArticles.length;
+  const unknownRate = totalIngested ? unknownArticles.length / totalIngested : 0;
+  console.log(`日期解析: 已知 ${knownArticles.length} 条 / 未知 ${unknownArticles.length} 条（缺失率 ${(unknownRate * 100).toFixed(1)}%）`);
+  if (unknownArticles.length) {
+    console.log(`  [SAMPLE-UNKNOWN] 前 5 条 date_unknown 稿件:`);
+    for (const u of unknownArticles.slice(0, 5)) {
+      console.log(`    · ${u.source_name} | ${u.title.slice(0, 40)} | ${u.source_url.slice(0, 60)}`);
+    }
+  }
+  if (unknownRate > 0.2 && totalIngested >= 5) {
+    // 达到告警阈值：既打印醒目 ALERT 又置 exitCode，让 Actions 步骤标红（沿用现有告警路径）
+    console.error('');
+    console.error(`!!! [ALERT] published_at 缺失率 ${(unknownRate * 100).toFixed(1)}%（${unknownArticles.length}/${totalIngested}）> 20% !!!`);
+    console.error('    疑似信源大面积丢日期 / 采集器解析回归；本轮这些稿件已改走 date_unknown 通道，不进今日主列表、不评精选。');
+    console.error('    请核对相关爬虫（发改委/网信办/工信部/DeepSeek 官方等）的 list 页 DOM 是否变更。');
+    console.error('');
+    process.exitCode = 1;
+  }
+  const uniqueArticlesKnown = knownArticles;
 
   // Step 3.55: 拼盘拆条——"早知道/早报"类合集若被整体评分/去重误杀，藏在其中的
   // 大新闻会被连坐（2026-08-15事故：极客早知道因头条事件昨日已精选被整篇杀掉，
   // 苹果中国自研模型/SpaceX收购Cursor两条80+分新闻漏报）。拆成独立子事件各走评分。
   // 拆条失败/拆不出时保留原篇，行为与之前一致。
-  const splitResult = await splitRoundups(uniqueArticles);
+  const splitResult = await splitRoundups(uniqueArticlesKnown);
   let candidateArticles = splitResult.list;
   if (splitResult.stats.split > 0) {
     // 子事件的 #ev-N URL 可能已在库（前轮已拆过同一拼盘），再过一遍URL去重
@@ -491,6 +628,16 @@ async function main() {
   }
 
   await insertArticles(cleanArticles);
+
+  // Step 4.5: 日期未知稿写库（2026-09-29 事故修复）
+  // 这些条目已在 Step 3.52 里定死 date_key='unknown'、_date_unknown=true；
+  // insertArticles 会拒给 is_featured、把 date_unknown 落列；仅 scope=all 检索可见，
+  // 不进"今日"主列表、不占日配额、不评精选。
+  if (unknownArticles.length) {
+    console.log(`--- Step 4.5: 日期未知稿写入 date_key='unknown' 归档 ---`);
+    const r = await insertArticles(unknownArticles);
+    console.log(`date_unknown 通道: 新增 ${r.inserted} 条 / 已存在跳过 ${r.skipped} 条`);
+  }
 
   // 隔离 + 告警（失败必须可见：exit 非0 让 Actions 步骤标红、触发通知）
   if (quarantined.length) {

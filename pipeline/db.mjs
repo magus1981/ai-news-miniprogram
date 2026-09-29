@@ -5,6 +5,7 @@
  */
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { normalizeUrl, normalizeTitle } from './normalize.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -142,6 +143,16 @@ export async function initDB() {
     // related_to：JSON {"id","title","date_key"}，指向同事件的先入库文章（相关阅读）
     `ALTER TABLE articles ADD COLUMN is_followup INTEGER DEFAULT 0`,
     `ALTER TABLE articles ADD COLUMN related_to TEXT DEFAULT ''`,
+    // 2026-09-29 事故修复：无发布日期的稿件不再冒充"今日稿"。
+    // date_unknown=1 表示 published_at 无法从 RSS/爬虫/URL/正文/meta 提取到；
+    // 该条 date_key 归入哨兵 'unknown'，不参与"今日"主列表、不评 is_featured，仅 scope=all 可见。
+    `ALTER TABLE articles ADD COLUMN date_unknown INTEGER DEFAULT 0`,
+    // 归一化 URL / 标题（写库时同步落列），供采集期与事后合并脚本按等价值找重。
+    `ALTER TABLE articles ADD COLUMN url_norm TEXT DEFAULT ''`,
+    `ALTER TABLE articles ADD COLUMN title_norm TEXT DEFAULT ''`,
+    `CREATE INDEX IF NOT EXISTS idx_date_unknown ON articles(date_unknown)`,
+    `CREATE INDEX IF NOT EXISTS idx_url_norm ON articles(url_norm)`,
+    `CREATE INDEX IF NOT EXISTS idx_title_norm ON articles(title_norm)`,
   ];
   for (const m of migrations) {
     try {
@@ -186,20 +197,157 @@ export async function getRecentTitles(days = 3) {
  */
 export async function getExistingUrls(urls) {
   if (!urls.length) return new Set();
+  // 2026-09-29 事故修复：按"原始 URL ∪ 归一化 URL"双路命中。
+  // 同一条稿件因 utm_/spm/www/尾斜杠/hash 差异重复入库的情况从此堵住。
+  // url_norm 列为空时（老数据未回填），fallback 到"运行时算一遍再比对"：SQL 里带原始 URL 精确命中。
+  const normSet = new Set();
+  for (const u of urls) {
+    const n = normalizeUrl(u);
+    if (n) normSet.add(n);
+  }
   const placeholders = urls.map(() => '?').join(',');
-  const sql = `SELECT source_url FROM articles WHERE source_url IN (${placeholders})`;
+  const normList = [...normSet];
+  const normPlaceholders = normList.length ? normList.map(() => '?').join(',') : '';
+  const sql = normList.length
+    ? `SELECT source_url FROM articles
+       WHERE source_url IN (${placeholders})
+          OR (url_norm != '' AND url_norm IN (${normPlaceholders}))`
+    : `SELECT source_url FROM articles WHERE source_url IN (${placeholders})`;
+  const args = normList.length ? [...urls, ...normList] : urls;
   try {
     let rows;
     if (LOCAL_MODE) {
-      rows = db.prepare(sql).all(...urls);
+      rows = db.prepare(sql).all(...args);
     } else {
-      const result = await db.execute({ sql, args: urls });
+      const result = await db.execute({ sql, args });
       rows = result.rows;
     }
     return new Set(rows.map(r => r.source_url));
   } catch (err) {
     console.warn('查询已入库URL失败（不影响采集，仅失去入库前过滤）:', err.message);
     return new Set();
+  }
+}
+
+/**
+ * 归一化标题查已入库重复（2026-09-29 事故修复）。
+ * 只比对近 N 天、非 noise、title_norm 命中的条目；返回 { title_norm → {id,published_at,date_key,source_url,source_name,event_norm} }。
+ * 采集期做批内合并、事后一次性脚本做全库合并都走这里；不猜语义，纯字符串等价。
+ */
+export async function findExistingByTitleNorm(norms, days = 10) {
+  const list = (norms || []).filter(Boolean);
+  if (!list.length) return new Map();
+  const placeholders = list.map(() => '?').join(',');
+  const sql = `SELECT id, title, source_name, source_url, published_at, date_key, event_norm, ai_score, is_featured
+    FROM articles
+    WHERE title_norm IN (${placeholders})
+      AND category != 'noise'
+      AND date_key >= date('now', '-${days} days')`;
+  try {
+    const rows = LOCAL_MODE
+      ? db.prepare(sql).all(...list)
+      : (await db.execute({ sql, args: list })).rows;
+    const m = new Map();
+    for (const r of rows) {
+      if (!m.has(r.title_norm)) m.set(r.title_norm, []);
+      m.get(r.title_norm).push(r);
+    }
+    return m;
+  } catch (err) {
+    console.warn('按归一化标题查已入库失败:', err.message);
+    return new Map();
+  }
+}
+
+/**
+ * 按 event_norm 查已入库同事件（2026-09-29 事故修复）。
+ * 用于发改委政策稿这类"同一天同一份文件、多家媒体转载"的场景。
+ * 只比对近 N 天、非 noise、event_norm 命中且非空的条目。
+ */
+export async function findExistingByEventNorm(events, days = 10) {
+  const list = (events || []).filter(Boolean);
+  if (!list.length) return new Map();
+  const placeholders = list.map(() => '?').join(',');
+  const sql = `SELECT id, title, source_name, source_url, published_at, date_key, event_norm, ai_score, is_featured
+    FROM articles
+    WHERE event_norm IN (${placeholders})
+      AND event_norm != ''
+      AND category != 'noise'
+      AND date_key >= date('now', '-${days} days')
+      AND date_key != 'unknown'`;
+  try {
+    const rows = LOCAL_MODE
+      ? db.prepare(sql).all(...list)
+      : (await db.execute({ sql, args: list })).rows;
+    const m = new Map();
+    for (const r of rows) {
+      if (!m.has(r.event_norm)) m.set(r.event_norm, []);
+      m.get(r.event_norm).push(r);
+    }
+    return m;
+  } catch (err) {
+    console.warn('按事件名查已入库失败:', err.message);
+    return new Map();
+  }
+}
+
+/**
+ * 合并写库（2026-09-29 事故修复）：新条目命中已在库的同 URL / 同 title_norm / 同 event_norm 时，
+ * 保留最早发布那条（published_at 非空者在前，同为空按 id 升序），把新条的 merged_count 累加到主条目上，
+ * 并按需把新条的精选/新稿价值降级为 followup。
+ * @param {number} keepId       主条目 id
+ * @param {number} mergedDelta  本条主条目新增合并数
+ */
+export async function bumpMergedCount(keepId, mergedDelta = 1) {
+  const sql = `UPDATE articles SET merged_count = COALESCE(merged_count,0) + ? WHERE id = ?`;
+  const args = [mergedDelta, keepId];
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).run(...args).changes > 0;
+    await db.execute({ sql, args });
+    return true;
+  } catch (err) {
+    console.warn(`累加 merged_count 失败 #${keepId}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * 按 id 集合硬删（仅供一次性合并脚本使用；采集期不用，采集期靠 insertOrIgnore 天然幂等）。
+ * 返回实际删除数。
+ */
+export async function deleteArticlesByIds(ids) {
+  const list = (ids || []).filter(n => Number.isFinite(n));
+  if (!list.length) return 0;
+  const placeholders = list.map(() => '?').join(',');
+  const sql = `DELETE FROM articles WHERE id IN (${placeholders})`;
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).run(...list).changes;
+    const r = await db.execute({ sql, args: list });
+    return Number(r.rows_affected || 0);
+  } catch (err) {
+    console.error('批量删除失败:', err.message);
+    return 0;
+  }
+}
+
+/** 更新单条目日期相关字段（清理脚本用）。 */
+export async function updateArticleDateFields(id, { published_at, date_key, date_unknown, is_featured }) {
+  const sets = [];
+  const args = [];
+  if (published_at !== undefined) { sets.push('published_at = ?'); args.push(published_at || ''); }
+  if (date_key !== undefined) { sets.push('date_key = ?'); args.push(date_key); }
+  if (date_unknown !== undefined) { sets.push('date_unknown = ?'); args.push(date_unknown ? 1 : 0); }
+  if (is_featured !== undefined) { sets.push('is_featured = ?'); args.push(is_featured ? 1 : 0); }
+  if (!sets.length) return false;
+  args.push(id);
+  const sql = `UPDATE articles SET ${sets.join(', ')} WHERE id = ?`;
+  try {
+    if (LOCAL_MODE) return db.prepare(sql).run(...args).changes > 0;
+    await db.execute({ sql, args });
+    return true;
+  } catch (err) {
+    console.error(`更新条目日期失败 #${id}:`, err.message);
+    return false;
   }
 }
 
@@ -211,8 +359,8 @@ export async function insertArticles(articles) {
   let skipped = 0;
 
   const insertSQL = `INSERT OR IGNORE INTO articles 
-    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, content_html, takeaway, key_points, quote, score_detail, merged_count, event_norm, is_followup, related_to)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (title, original_title, source_name, source_url, category, summary, ai_score, is_featured, is_breaking, published_at, date_key, tags, content, content_html, takeaway, key_points, quote, score_detail, merged_count, event_norm, is_followup, related_to, date_unknown, url_norm, title_norm)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   for (const article of articles) {
     const args = [
@@ -223,9 +371,10 @@ export async function insertArticles(articles) {
       article.category,
       article.summary || null,
       article.ai_score || null,
-      article.is_featured ? 1 : 0,
+      // date_unknown 稿件一律拒绝精选（2026-09-29 事故修复：无发布日期稿不得进"今日"、不评精选）
+      (article._date_unknown || article.date_unknown) ? 0 : (article.is_featured ? 1 : 0),
       article.is_breaking ? 1 : 0,
-      article.published_at,
+      article.published_at || '',
       article.date_key,
       article.tags || '[]',
       article.content || '', // 抓取的原文全文（存档供事实二审/重生成摘要）
@@ -238,6 +387,9 @@ export async function insertArticles(articles) {
       article.event_norm || '', // 归一化事件名（供详情页识别同一事件的前情）
       article.is_followup ? 1 : 0, // AI跨期去重标记：同事件实质新进展的跟进稿
       article.related_to || '', // 相关阅读：指向同事件的先入库文章 {id,title,date_key}
+      (article._date_unknown || article.date_unknown) ? 1 : 0, // 无发布日期标记（date_key='unknown'，仅 scope=all 可见）
+      normalizeUrl(article.source_url), // 供事后合并脚本按归一化 URL 找重
+      normalizeTitle(article.title), // 供事后合并脚本按归一化标题找重
     ];
 
     try {

@@ -786,12 +786,19 @@ function handleRequest(req, res) {
 
       const total = db.prepare(`SELECT COUNT(*) as t FROM articles ${whereSQL}`).get(...args).t;
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags, date_unknown
         FROM articles ${whereSQL}
         ORDER BY date_key DESC, ai_score DESC LIMIT ? OFFSET ?
       `).all(...args, limit, offset);
 
-      const articles = rows.map(withParsedTags);
+      // 2026-09-29 事故修复：无发布日期稿件以 date_key='unknown'、date_unknown=1 归档；
+      // 只在 scope=all 里出现（scope=main 与具体日期查询天然过滤掉），条目上带 date_unknown: true
+      // 供前端渲染"日期未知"标识；published_at 为空串时前端也不显示时间线，避免误导。
+      const articles = rows.map(r => {
+        const parsed = withParsedTags(r);
+        if (r.date_unknown) parsed.date_unknown = true;
+        return parsed;
+      });
 
       // 欠费期降级兜底：只在「首页主列表」形态介入——scope=main、指定了具体日期、
       // 未叠加标签/分类/重要性筛选、第一页，且当日合格稿不足阈值。
