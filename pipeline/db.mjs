@@ -238,7 +238,7 @@ export async function findExistingByTitleNorm(norms, days = 10) {
   const list = (norms || []).filter(Boolean);
   if (!list.length) return new Map();
   const placeholders = list.map(() => '?').join(',');
-  const sql = `SELECT id, title, source_name, source_url, published_at, date_key, event_norm, ai_score, is_featured
+  const sql = `SELECT id, title, source_name, source_url, published_at, date_key, event_norm, ai_score, is_featured, title_norm
     FROM articles
     WHERE title_norm IN (${placeholders})
       AND category != 'noise'
