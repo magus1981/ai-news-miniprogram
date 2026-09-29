@@ -260,6 +260,86 @@ export function computeHealthAlerts(history, sources) {
 }
 
 /**
+ * 加工服务探活（2026-09-29 欠费事故修复）
+ * 背景：09-28 起 DashScope 欠费，AI 加工全线失败，但要看完整跑完约 30 分钟、
+ * 数隔离表爆量才被动发现（本轮事故就是人工撞出来的）。这里在开跑前用一次极小调用
+ * （max_tokens=1）先验账号可用性，账号级不可用就立刻中止，省下整轮抓取与 LLM 花费，
+ * 也让告警提前约半小时。
+ * 判定口径：
+ *   - 账号级（401/402/403、Arrearage/欠费/InvalidApiKey/Access denied）→ 立即中止，不重试
+ *     （重试不会让欠费变可用，只会浪费时间）；
+ *   - 非账号级（网络超时、5xx、DNS）→ 重试一次，仍失败才中止（避免一次网络抖动误杀整轮采集）。
+ * 中止沿用既有 fail-fast 路径：打印 [ALERT] + process.exitCode=1 让 Actions 步骤标红触发通知，
+ * 不另造第二套告警通道。SKIP_LLM_PROBE=1 可人工绕过（仅限明知账号正常、要先收原始新闻的补跑）。
+ */
+const PROBE_ACCOUNT_FATAL_RE = /Arrearage|overdue|欠费|InvalidApiKey|AccessDenied|Access denied|Incorrect API key|Unauthorized/i;
+
+export function probeIsAccountFatal(r) {
+  return r.status === 401 || r.status === 402 || r.status === 403 || PROBE_ACCOUNT_FATAL_RE.test(r.body || '');
+}
+
+export async function probeLLMService() {
+  if (process.env.SKIP_LLM_PROBE === '1') {
+    console.log('[WARN] SKIP_LLM_PROBE=1：已跳过加工服务探活（仅人工补跑使用）');
+    return true;
+  }
+  const key = process.env.DASHSCOPE_API_KEY;
+  if (!key) {
+    console.error('!!! [ALERT] 加工服务探活失败：DASHSCOPE_API_KEY 未设置（密钥缺失，非欠费） !!!');
+    console.error('!!! [ALERT] 本轮采集已中止（未抓取任何源）。请检查 workflow secrets 配置。 !!!');
+    process.exitCode = 1;
+    return false;
+  }
+  const probeModel = process.env.LLM_PROBE_MODEL || 'qwen-turbo';
+  const timeoutMs = Number(process.env.LLM_PROBE_TIMEOUT_MS) || 20000;
+  // 默认端点与各 ai-*.mjs 模块用的完全一致；LLM_PROBE_URL 仅供单测指向本地桩服务
+  const probeUrl = process.env.LLM_PROBE_URL
+    || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+
+  const once = async () => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const resp = await fetch(probeUrl, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        // max_tokens=1 的固定短 prompt：只为验证"能不能调用"，不产生任何业务内容
+        body: JSON.stringify({ model: probeModel, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+        signal: ac.signal,
+      });
+      let text = '';
+      try { text = await resp.text(); } catch { /* 正文读不出时按状态码判定 */ }
+      return { ok: resp.ok, status: resp.status, body: text.slice(0, 300) };
+    } catch (e) {
+      const timedOut = e?.name === 'AbortError';
+      return { ok: false, status: 0, body: timedOut ? `timeout>${timeoutMs}ms` : String(e?.message || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  let r = await once();
+  if (!r.ok && !probeIsAccountFatal(r)) {
+    console.log(`[PROBE] 首次探活未通过（${r.status || 'NET'} ${r.body.slice(0, 80)}），重试一次…`);
+    r = await once();
+  }
+  if (r.ok) {
+    console.log(`[PROBE] DashScope 探活通过（${probeModel}），开始采集`);
+    return true;
+  }
+
+  const fatal = probeIsAccountFatal(r);
+  const why = fatal ? '账号级不可用（欠费/鉴权失败）' : '服务不可达（超时/5xx/网络）';
+  console.error('');
+  console.error(`!!! [ALERT] 加工服务探活失败：${why} — 立即中止本轮采集（未抓取任何源） !!!`);
+  console.error(`!!! [ALERT] HTTP ${r.status || 'N/A'}｜${r.body.slice(0, 200) || '(无响应体)'} !!!`);
+  console.error('!!! [ALERT] 处置：检查 DashScope 账户余额/API Key 后重跑本轮；'
+    + '确需先收原始新闻可临时 SKIP_LLM_PROBE=1，但产物会进隔离表不会上首页。 !!!');
+  process.exitCode = 1; // 沿用既有标红路径 → Actions 步骤失败触发通知
+  return false;
+}
+
+/**
  * 主采集流程
  */
 async function main() {
@@ -292,6 +372,10 @@ async function main() {
   console.log(`时间: ${new Date().toISOString()}`);
   console.log(`源数量: ${activeSources.length}${lightMode ? '（凌晨轻量轮：仅海外源）' : ` / 全量 ${SOURCES.length}`}`);
   console.log('');
+
+  // Step 0: 加工服务探活（2026-09-29 欠费事故修复）——放在任何抓取之前，
+  // 账号欠费/鉴权失败时立即中止，不要等整轮 30 分钟跑完才被动发现。
+  if (!await probeLLMService()) return;
 
   // Step 1: 确保数据库表存在
   await initDB();

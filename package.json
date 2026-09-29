@@ -8,7 +8,8 @@
     "collect": "cd pipeline && node collect.mjs",
     "init-db": "cd pipeline && node collect.mjs --init",
     "test:pure": "cd pipeline && node tests/test-pure.mjs",
-    "test:llm": "cd pipeline && node --import ./load-env.mjs tests/test-llm-rules.mjs"
+    "test:llm": "cd pipeline && node --import ./load-env.mjs tests/test-llm-rules.mjs",
+    "test:probe": "cd pipeline && node tests/test-llm-probe.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0"
