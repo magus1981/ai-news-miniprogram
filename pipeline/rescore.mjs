@@ -9,6 +9,7 @@
  *   node rescore.mjs                 # 干跑：只打印每篇 旧分->新分 与精选变化，不写库
  *   node rescore.mjs --apply         # 落库（先自动备份 data/articles.db）
  *   node rescore.mjs --days 2026-07-22,2026-07-23   # 只重评指定日期（默认：所有含旧标准分的天）
+ *   node rescore.mjs --ids 2054,2056 --apply        # 定点：只重评指定条目，按发布日分组（2026-09-29 回补稿场景）
  *
  * 口径与采集管线完全一致（同一套函数，不是复刻）：
  * - 逐天调用 refineScores：档位配额是"日"配额，跨天混跑会让配额失去意义；
@@ -30,6 +31,10 @@ const DB_PATH = join(__dirname, '..', 'data', 'articles.db');
 const APPLY = process.argv.includes('--apply');
 const daysArg = process.argv[process.argv.indexOf('--days') + 1];
 const ONLY_DAYS = process.argv.includes('--days') && daysArg ? daysArg.split(',') : null;
+const idsArg = process.argv[process.argv.indexOf('--ids') + 1];
+const ONLY_IDS = process.argv.includes('--ids') && idsArg
+  ? idsArg.split(',').map(s => Number(s.trim())).filter(Number.isFinite)
+  : null;
 
 if (!process.env.DASHSCOPE_API_KEY) {
   console.error('FATAL: DASHSCOPE_API_KEY 未设置（应在 pipeline/.env 配置），重评必须走真模型，退出');
@@ -38,13 +43,24 @@ if (!process.env.DASHSCOPE_API_KEY) {
 
 const db = new Database(DB_PATH);
 
-// 默认重评范围：还有旧标准分的天（refined 记号是 2026-07-30 改档位制后才有的）
-const targetDays = ONLY_DAYS || db.prepare(`
-  SELECT date_key FROM articles WHERE category != 'noise'
-  GROUP BY date_key
-  HAVING SUM(CASE WHEN score_detail LIKE '%"stage":"refined"%' THEN 1 ELSE 0 END) < COUNT(*)
-  ORDER BY date_key
-`).all().map(r => r.date_key);
+// 重评范围优先级：--ids（定点，按发布日分组） > --days（整天） > 默认（还有旧标准分的天）。
+// 定点模式只动这些条目；整天模式会把该天全部文章一起重打（同天同尺）。
+let targetDays;
+if (ONLY_IDS) {
+  const ph = ONLY_IDS.map(() => '?').join(',');
+  targetDays = db.prepare(`SELECT DISTINCT date_key FROM articles WHERE id IN (${ph}) ORDER BY date_key`)
+    .all(...ONLY_IDS).map(r => r.date_key);
+  if (ONLY_DAYS) targetDays = targetDays.filter(d => ONLY_DAYS.includes(d));
+} else if (ONLY_DAYS) {
+  targetDays = ONLY_DAYS;
+} else {
+  targetDays = db.prepare(`
+    SELECT date_key FROM articles WHERE category != 'noise'
+    GROUP BY date_key
+    HAVING SUM(CASE WHEN score_detail LIKE '%"stage":"refined"%' THEN 1 ELSE 0 END) < COUNT(*)
+    ORDER BY date_key
+  `).all().map(r => r.date_key);
+}
 
 if (targetDays.length === 0) {
   console.log('没有需要重评的日期（全库都已是现行口径）');
@@ -64,11 +80,12 @@ const updateStmt = db.prepare(
 
 let failedDays = [];
 for (const day of targetDays) {
+  const idsFilter = ONLY_IDS ? ` AND id IN (${ONLY_IDS.map(() => '?').join(',')})` : '';
   const rows = db.prepare(`
     SELECT id, title, source_name, summary, content, ai_score, is_featured, is_breaking, published_at, score_detail
-    FROM articles WHERE category != 'noise' AND date_key = ?
+    FROM articles WHERE category != 'noise' AND date_key = ?${idsFilter}
     ORDER BY ai_score DESC
-  `).all(day);
+  `).all(day, ...(ONLY_IDS || []));
   if (rows.length === 0) continue;
 
   // 该天视角的旧闻对照：它之前10天已入库的标题（与采集时 getRecentTitles 同口径）
@@ -103,9 +120,20 @@ for (const day of targetDays) {
   }
   applyRoleCeiling(candidates);
 
-  // 精选整天重算：按新分降序走首轮规则（>=80、预算5、条数25%封顶）
+  // 精选重评：按新分降序。
+  // - 整天模式（不带 --ids）：全天重算，走首轮规则（>=80、预算5、条数25%封顶）；
+  // - 定点模式（--ids）：本批与既有精选并存，必须带真实日上下文走增量口径
+  //   （预算=5-已精选、仍要求>=80），否则会无视既有精选重复发满预算；
+  //   existing* 统计排除本批自身（本批的旧精选标记正在被本次重评覆盖）。
   candidates.sort((a, b) => b.ai_score - a.ai_score);
-  markFeatured(candidates, {});
+  let featCtx = {};
+  if (ONLY_IDS) {
+    const ph = ONLY_IDS.map(() => '?').join(',');
+    const ex = db.prepare(`SELECT COUNT(*) c, MIN(ai_score) m FROM articles WHERE date_key = ? AND is_featured = 1 AND id NOT IN (${ph})`).get(day, ...ONLY_IDS);
+    const full = db.prepare('SELECT COUNT(*) c FROM articles WHERE date_key = ?').get(day).c;
+    featCtx = { existingCount: full, existingFeatured: ex.c, featuredMinScore: ex.m || 0 };
+  }
+  markFeatured(candidates, featCtx);
 
   const oldById = new Map(rows.map(r => [r.id, r]));
   for (const c of candidates) {
