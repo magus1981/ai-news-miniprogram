@@ -781,10 +781,12 @@ function handleRequest(req, res) {
         // 政策稿按 MAINLIST_POLICY_MIN_SCORE 降档放行，其余仍须 65（口径见常量注释）。
         // 注意：占位符与其参数必须在这里同步 push——where 数组的拼接顺序决定 args 的消费顺序，
         // 插到 date/category 之后会把整条 SQL 的参数错位。
-        const policyPh = POLICY_SOURCE_NAMES.map(() => '?').join(',');
-        where.push(
-          `(is_featured = 1 OR ai_score >= 65 OR (ai_score >= ? AND (category = 'policy' OR source_name IN (${policyPh}))))`
-        );
+        // POLICY_SOURCE_NAMES 为空时不能拼 `source_name IN ()`（SQLite 语法错误会让首页
+        // 整个 500），故按名单长度分支——没名单就只认 articles.category。
+        const policyArms = POLICY_SOURCE_NAMES.length
+          ? `(category = 'policy' OR source_name IN (${POLICY_SOURCE_NAMES.map(() => '?').join(',')}))`
+          : `(category = 'policy')`;
+        where.push(`(is_featured = 1 OR ai_score >= 65 OR (ai_score >= ? AND ${policyArms}))`);
         args.push(MAINLIST_POLICY_MIN_SCORE, ...POLICY_SOURCE_NAMES);
         where.push(`takeaway IS NOT NULL AND TRIM(takeaway) <> ''`);
         where.push(`(summary IS NULL OR instr(summary, char(65533)) = 0)`);
