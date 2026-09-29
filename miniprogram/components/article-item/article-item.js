@@ -14,7 +14,20 @@ Component({
 
   methods: {
     onTap() {
-      const { id } = this.data.article;
+      const { id, degraded, source_url } = this.data.article;
+      // 兜底稿没有详情页（未经 AI 加工入库），点了不跳错误页：
+      // 复制原文链接让用户能去看原文，并如实告知为什么没有详情页。
+      if (degraded) {
+        if (source_url) {
+          wx.setClipboardData({
+            data: source_url,
+            success: () => wx.showToast({ title: '未加工原文，链接已复制', icon: 'none' }),
+          });
+        } else {
+          wx.showToast({ title: '未加工原文，暂无详情页', icon: 'none' });
+        }
+        return;
+      }
       wx.navigateTo({
         url: `/pages/detail/detail?id=${id}`,
       });

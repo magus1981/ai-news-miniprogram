@@ -88,6 +88,17 @@
   font-weight: 600;
 }
 
+/* 欠费期兜底稿角标：琥珀描边，警示但不刺眼，与实心角标区分 */
+.article-degraded {
+  font-size: 20rpx;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1rpx solid rgba(245, 158, 11, 0.45);
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  font-weight: 600;
+}
+
 /* 子标签chip：浅色描边，区别于分类标签 */
 .subtag-chip {
   font-size: 20rpx;

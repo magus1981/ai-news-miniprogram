@@ -575,3 +575,15 @@
   font-size: 24rpx;
   color: var(--color-text-secondary);
 }
+
+/* 降级横幅：琥珀警示色与日报的靛蓝主色区分开，一眼可见"这不是常态列表" */
+.degraded-banner {
+  margin: 16rpx 28rpx 0;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #b45309;
+  font-size: 24rpx;
+  line-height: 1.5;
+}

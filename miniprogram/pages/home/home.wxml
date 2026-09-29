@@ -41,6 +41,10 @@
   </view>
 
   <block wx:else>
+    <!-- 降级横幅：AI 加工停摆（如账号欠费）时后端注入未加工兜底稿，这里必须总说明；
+         每条兜底卡片另带「未加工」小标（见 article-item）-->
+    <view wx:if="{{degradedBanner}}" class="degraded-banner">{{degradedNote}}</view>
+
     <!-- 今日导语：主编开场白（无导语时不占位） -->
     <view wx:if="{{intro}}" class="glass intro-card">
       <view class="intro-label">主编导语</view>

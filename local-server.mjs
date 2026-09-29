@@ -206,6 +206,86 @@ function tagLikePattern(tag) {
   return `%"${clean}"%`;
 }
 
+// ===== 欠费期降级兜底：取当日「未加工但非垃圾」条目（见 MAIN_FALLBACK_* 常量注释）=====
+// U+FFFD 占比（按字符数）；空串按满密度处理（无正文可用即不可展示）
+function fffdPct(s) {
+  if (!s) return 100;
+  return (s.match(/\uFFFD/g) || []).length * 100 / s.length;
+}
+// 垃圾过滤三道闸：标题空/超短、标题含任何乱码位、正文缺失或严重截断或乱码超标。
+// 任何一道不过就不展示——兜底只救「空白」，不救「垃圾」。
+function fallbackEntryClean(title, body) {
+  const t = String(title || '').trim();
+  return t.length > 2 && fffdPct(t) === 0
+    && fffdPct(body) <= FALLBACK_MAX_FFFD_PCT
+    && (body || '').length >= FALLBACK_MIN_BODY_CHARS;
+}
+
+// 两个兜底池（当日）：
+//   A. articles 表里 takeaway 为空的未加工/半成品（正常管线不该有，防 fail-fast 漏网）；
+//   B. articles_quarantine 里因 AI 服务报错被隔离的稿件（欠费主场景）。
+// 因低分被闸掉但已加工完的稿不进池——那会把加工稿错标成「未加工」，反向冒充。
+// 返回 { items, cause }：items 按发布时间倒序、已序列化到列表卡片所需形状；
+// cause 供前端横幅措辞（arrearage=欠费，ai_service_error=其他接口故障）。
+function collectDegradedFallback(dateKey, need) {
+  const pool = [];
+  let cause = 'ai_service_error';
+
+  const rawRows = db.prepare(`
+    SELECT id, title, source_name, source_url, category, published_at, collected_at,
+           CASE WHEN COALESCE(content,'') <> '' THEN content ELSE COALESCE(summary,'') END AS body
+    FROM articles
+    WHERE date_key = ? AND category != 'noise'
+      AND (takeaway IS NULL OR TRIM(takeaway) = '')
+  `).all(dateKey);
+  for (const r of rawRows) {
+    if (!fallbackEntryClean(r.title, r.body)) continue;
+    pool.push({
+      id: r.id, title: r.title.trim(), source_name: r.source_name, source_url: r.source_url,
+      category: r.category, published_at: r.published_at, collected_at: r.collected_at,
+    });
+  }
+
+  let quarRows = [];
+  try {
+    quarRows = db.prepare(`
+      SELECT rowid AS qrow, title, source_name, source_url, category, published_at, reason,
+             CASE WHEN COALESCE(content,'') <> '' THEN content ELSE COALESCE(content_snippet,'') END AS body
+      FROM articles_quarantine
+      WHERE date_key = ? AND category != 'noise'
+    `).all(dateKey);
+  } catch { /* 隔离表尚未创建（老库）时静默跳过 */ }
+  for (const r of quarRows) {
+    if (!looksLikeAiServiceFailure(r.reason)) continue; // 垃圾隔离不进兜底
+    if (!fallbackEntryClean(r.title, r.body)) continue;
+    if (/Arrearage|Access denied|overdue/i.test(String(r.reason))) cause = 'arrearage';
+    pool.push({
+      id: `q${r.qrow}`, title: r.title.trim(), source_name: r.source_name, source_url: r.source_url,
+      category: r.category, published_at: r.published_at, collected_at: null,
+    });
+  }
+
+  // 两池按 URL 去重（同稿既在表内又在隔离的罕见兜底），再按发布时间倒序取前 need 条
+  const seen = new Set();
+  const deduped = pool.filter(r => (seen.has(r.source_url) ? false : seen.add(r.source_url)));
+  deduped.sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')));
+
+  return {
+    cause,
+    items: deduped.slice(0, Math.max(0, need)).map(r => ({
+      ...r,
+      tags: {},
+      summary: '',
+      takeaway: '',
+      ai_score: null,   // 加工未完成就没有可信评分，宁可不显示也不误导
+      is_featured: false,
+      is_breaking: false,
+      is_new: false,
+      degraded: true,   // 前端据此打「未加工」标，绝不冒充加工稿
+    })),
+  };
+}
+
 // 相关报道检索（纯SQL+内存打分，无LLM）
 //
 // 旧实现是「逐个标签值查、命中一个就算相关、按日期倒序取3条」，等价于
@@ -252,6 +332,31 @@ const ARCHIVE_WINDOW_DAYS = 30;
 // 0.5/天意味着旧文章每老一周需多 3.5 分才能压住新文章，30 天前的要多 15 分；
 // 0.3 几乎不改变排序（白加），1.0 则让 89 分新闻压过 9 天前的 95 分（喧宾夺主）。
 const ARCHIVE_DECAY_PER_DAY = 0.5;
+
+// ===== 欠费期降级兜底（2026-09-29，仅展示层，不动采集管线）=====
+// 背景：DashScope 欠费后 AI 加工全线失败，fail-fast 把当日稿件整批送进
+// articles_quarantine，articles 表当日 0 条；首页质量闸只放加工合格的稿，
+// 于是主列表空掉（09-29 实测）。充值恢复前首页不能空白，这里在 scope=main
+// 的首页主列表场景做降级：当日合格稿不足 MAIN_FALLBACK_MIN_QUALIFIED 条时，
+// 自动追加「未加工但非垃圾」的当日条目，凑到至少 MAIN_FALLBACK_TARGET 条。
+// 兜底条目一律带 degraded=true，前端必须显式标注「未加工」，绝不冒充加工稿；
+// 乱码/空标题/严重截断的真垃圾继续隔离。一旦当日合格稿 ≥ 阈值，兜底自动
+// 停止注入，无需回滚改动。query.fallback=0 可强制关闭（调试用）。
+const MAIN_FALLBACK_MIN_QUALIFIED = 5;   // 当日合格稿低于此数才触发兜底
+const MAIN_FALLBACK_TARGET = 10;         // 触发后至少凑到的条数
+const FALLBACK_MIN_BODY_CHARS = 60;      // 正文/片段低于此字数视为严重截断，不展示
+const FALLBACK_MAX_FFFD_PCT = 5;         // 正文 U+FFFD 占比超过 5% 视为乱码，不展示
+
+// 判定「AI 服务故障导致的隔离」而非「垃圾内容导致的隔离」：
+// 只有 failed_stage 卡在加工环节、且 reason 明确是 DashScope 侧报错的才进兜底池。
+const FALLBACK_API_ERROR_PATTERNS = [
+  'Arrearage', 'Access denied', 'InvalidApiKey', 'Throttling', 'API错误',
+  'api error', 'timeout', '超时', '429', '500', '502', '503',
+];
+function looksLikeAiServiceFailure(reason) {
+  const s = String(reason || '');
+  return FALLBACK_API_ERROR_PATTERNS.some(p => s.includes(p));
+}
 
 // 在一个AI资讯应用里这些词命中了也不说明相关。注意不能靠词频(IDF)压掉它们——
 // 库里带"AI"标签的只有7条，频次很低但语义为零，IDF 反而会给它高权重。
@@ -687,10 +792,34 @@ function handleRequest(req, res) {
       `).all(...args, limit, offset);
 
       const articles = rows.map(withParsedTags);
+
+      // 欠费期降级兜底：只在「首页主列表」形态介入——scope=main、指定了具体日期、
+      // 未叠加标签/分类/重要性筛选、第一页，且当日合格稿不足阈值。
+      // 合格稿一律置顶，兜底条目只追加在尾部并带 degraded=true；
+      // 充值恢复后当日合格稿 ≥ 阈值，此段整体不再触发（自动失效，无需回滚）。
+      let fallback = { items: [], cause: null };
+      const fallbackEligible = scope === 'main' && query.fallback !== '0'
+        && date && !tag && (!category || category === 'all')
+        && !minScores.length && page === 1
+        && total < MAIN_FALLBACK_MIN_QUALIFIED;
+      if (fallbackEligible) {
+        fallback = collectDegradedFallback(date, MAIN_FALLBACK_TARGET - total);
+      }
+      const merged = articles.concat(fallback.items);
+
       return sendJSON(res, 200, {
         date: date || 'all', category: category || 'all', tag: tag || null, scope,
         page, page_size: limit,
-        total, has_more: offset + articles.length < total, articles,
+        total: total + fallback.items.length,
+        has_more: offset + merged.length < total,
+        // degraded 仅在真正注入了兜底条目时为 true；qualified_total 供前端核对口径
+        degraded: fallback.items.length > 0,
+        ...(fallback.items.length ? {
+          degraded_count: fallback.items.length,
+          degraded_reason: fallback.cause,
+          qualified_total: total,
+        } : {}),
+        articles: merged,
       });
     }
 

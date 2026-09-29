@@ -33,5 +33,7 @@
     <text wx:if="{{article.is_new}}" class="article-new">新</text>
     <text wx:if="{{article.is_breaking}}" class="article-breaking">突发</text>
     <text wx:if="{{article.is_featured}}" class="article-hot">精选</text>
+    <!-- 欠费期兜底稿：无评分无要点，必须打上「未加工」，与加工稿一眼可辨 -->
+    <text wx:if="{{article.degraded}}" class="article-degraded">未加工</text>
   </view>
 </view>

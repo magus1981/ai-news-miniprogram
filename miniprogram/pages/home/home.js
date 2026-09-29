@@ -83,6 +83,8 @@ Page({
     activeBands: [],       // 选中的档位下限列表（空=不筛选）
     dayTotal: 0,           // 后端返回的当日总条数（category!=noise 全量口径）
     dayTruncated: false,   // 是否因单请求 50 条硬上限只展示了部分（截断必须显式可见，不能静默丢尾部）
+    degradedBanner: false, // 欠费期降级兜底横幅（后端 scope=main 注入未加工稿时为 true）
+    degradedNote: '',      // 横幅文案（按 degraded_reason 措辞，不硬编码欠费）
   },
 
   onLoad() {
@@ -185,6 +187,13 @@ Page({
         intro: featuredRes.intro || '',
         dayTotal,
         dayTruncated: dayTotal > shownCount,
+        // 降级横幅：后端在合格稿不足时追加了「未加工但非垃圾」的兜底条目。
+        // 兜底稿逐条带 degraded 标（卡片显示「未加工」），这里再给整列表一条总说明，
+        // 二者缺一不可——绝不把未加工稿混在加工稿里冒充。
+        degradedBanner: !!articlesRes.degraded,
+        degradedNote: articlesRes.degraded_reason === 'arrearage'
+          ? '⚠️ AI 加工服务异常（账号欠费），以下含未加工原文'
+          : '⚠️ AI 加工服务异常，以下含未加工原文',
         loading: false,
       });
 
