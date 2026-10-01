@@ -137,7 +137,20 @@ export function filterByFreshness(articles, source) {  const now = Date.now();
       // 采集器直接返回 null/空 published_at 时，走 URL/HTML 兜底再判一次；
       // 仍失败 → 标 _date_unknown 放行（不再冒充今日稿，见 normalizePublishedAt 注释）
       const rescued = resolvePublishedAt(a);
-      if (rescued) { a.published_at = rescued; return true; }
+      if (rescued) {
+        // 救援出来的日期必须重新过一遍时效窗口（2026-10-01 修复，"小程序当天0条"排查）。
+        // 旧写法 `a.published_at = rescued; return true;` 只看"有没有救出日期"，不看救出来的是哪天：
+        // 政务站列表页不带时间、URL 里写着 t20211227 / t20240522，于是 2021—2025 年的老文件
+        // 每轮都成批进池（实测 09-29/09-30 两轮入库的 date_key 有 2024-05-22、2025-10-13 等）。
+        // 后果不只是列表脏：候选池的"发布日个数"被撑到 160 个，而 pickRefineCandidates 给每个
+        // 未满日保底 3 个精评名额、总预算只有 30 —— 名额被历史日桶分光，当日 97 条候选只抢到 3 席，
+        // 当天页面于是几乎为空。这与 2026-08-27 把窗口从 72h 收紧到 36h 的意图（治陈旧稿占配额）
+        // 是同一个洞的另一条支路，此处按同一口径补齐：超窗一律不进池。
+        a.published_at = rescued;
+        const rts = new Date(rescued).getTime();
+        if (Number.isFinite(rts)) return rts >= cutoff && rts <= now + MAX_FUTURE_MS;
+        return true;
+      }
       a._date_unknown = true;
       a.published_at = '';
       return true;

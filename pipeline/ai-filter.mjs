@@ -887,14 +887,31 @@ export function mergeIntoKept(kept, dropped) {
  *   粗评留缓冲），至多5条——与 selectByQuota 汰换的单轮上限对齐（2026-08-28 起
  *   配额已满改为汰换竞争制，原2条上限会让"单轮至多汰换5条"永远够不着）
  * - 未满的日：每日保底基础名额（当日新稿永远有被精评的机会）
+ *   **但保底只在"近 REFINE_GUARANTEE_DAYS 日"内分配**（2026-10-01 修复，"小程序当天0条"排查）：
+ *   旧写法把池子里出现的每一个发布日都算作"未满日"来分保底，base = max(3, floor(30/未满日数))，
+ *   而 2026-08-14 之后时效窗口那条支路（见 collect.mjs filterByFreshness 同批修复）让候选池里
+ *   冒出上百个历史发布日——实测 #587 一轮：539 条候选覆盖 160 个发布日、156 个在 09-28 之前，
+ *   于是每个日桶都"保底 3 条"，480 个伸手要 30 个名额，分配结果退化成"按粗评分降序谁先来谁占位"，
+ *   当日 97 条候选只拿到 3 席，当天页面几乎为空。历史日的候选不再参与保底，
+ *   仍可通过下面的全局补齐竞争名额（政策稿有 policyQuotaPicks 专道，不受影响）。
  * - 剩余名额按粗评分全局补齐（保留粗评捞回好文章的旧行为；保底名额通常已占满，
  *   这只在候选不足或某日稿件少于保底数时生效）
  * @param {Array} list - 事件/标题去重后的文章（粗评分降序）
  * @param {Object<string,{existingCount?:number}>} dayContexts - 各发布日已入库数
  * @param {number} limit - 精评候选总数上限
+ * @param {string} [todayKey] - "北京今日"YYYY-MM-DD，供近 N 日保底判定；
+ *   显式传入而非内部取时钟，是为了让本函数在回归测试里保持确定性（测试固定发布日）
  */
-export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
+export const REFINE_GUARANTEE_DAYS = 3;
+
+export function pickRefineCandidates(list, dayContexts = {}, limit = 30, todayKey = beijingDayKey(new Date().toISOString())) {
   const DAY_CAP = 20;
+  // todayKey 非法时不设窗口（全部日参与保底），宁回退旧行为也不要把名额算成 0
+  const guardFrom = (() => {
+    const base = todayKey ? new Date(`${todayKey}T00:00:00Z`).getTime() : NaN;
+    if (!Number.isFinite(base)) return null;
+    return new Date(base - (REFINE_GUARANTEE_DAYS - 1) * 86400000).toISOString().slice(0, 10);
+  })();
   const byDay = new Map();
   for (const a of list) {
     const dk = beijingDayKey(a.published_at);
@@ -906,17 +923,22 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30) {
   const push = a => { picked.add(a); result.push(a); };
 
   const openDays = [];
+  const farDays = [];
   for (const [dk, items] of byDay) {
     const existing = (dayContexts[dk] || {}).existingCount || 0;
     if (existing >= DAY_CAP) {
       for (const a of items.filter(x => x.ai_score >= 80).slice(0, 5)) push(a);
+    } else if (guardFrom === null || dk >= guardFrom) {
+      openDays.push(items);   // 近 N 日：参与保底
     } else {
-      openDays.push(items);
+      farDays.push(items);    // 更早的未满日：只走全局补齐
     }
   }
-  if (openDays.length) {
-    const base = Math.max(3, Math.floor((limit - result.length) / openDays.length));
-    for (const items of openDays) {
+  // 近 N 日一条候选都没有（整轮只捞到旧稿）时退回旧口径，避免名额无人认领
+  const baseDays = openDays.length ? openDays : farDays;
+  if (baseDays.length) {
+    const base = Math.max(3, Math.floor((limit - result.length) / baseDays.length));
+    for (const items of baseDays) {
       for (const a of items.slice(0, base)) {
         if (result.length >= limit) break;
         if (!picked.has(a)) push(a);

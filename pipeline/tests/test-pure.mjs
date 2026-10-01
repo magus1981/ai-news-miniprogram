@@ -18,6 +18,9 @@ import {
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
 import { isRoundupCandidate, buildSubEvents, parseSplitResponse } from '../roundup-split.mjs';
 import { pickMissedCandidates, parseAuditResponse } from '../miss-audit.mjs';
+// 2026-10-01 新增：时效窗口与精评名额的回归用例需要直接调用这两个纯函数
+import { filterByFreshness } from '../collect.mjs';
+import { REFINE_GUARANTEE_DAYS } from '../ai-filter.mjs';
 
 const CASES = [];
 const T = (desc, fn) => CASES.push([desc, fn]);
@@ -694,6 +697,88 @@ T('对账候选: 空池返回空', () => pickMissedCandidates([], [], now).lengt
 T('对账解析: 正常JSON', () => parseAuditResponse('{"misses":[{"index":2,"reason":"重大并购"}]}')[0].index === 2);
 T('对账解析: 空misses', () => parseAuditResponse('{"misses":[]}').length === 0);
 T('对账解析: 垃圾输入返回null', () => parseAuditResponse('not json at all') === null);
+
+// ── 时效窗口对"URL 救援出的日期"同样生效（2026-10-01 修复：小程序"当天0条"事故）──
+// 事故机制：政务站列表页不带时间、URL 里写着 t20211227，而旧 filterByFreshness 的救援分支是
+//   `if (rescued) { a.published_at = rescued; return true; }` —— 只判"救没救到日期"，
+// 不判"救出来的是哪天"，于是 2021—2025 年的老文件每轮成批进池（实测 #587：539 条候选覆盖
+// 160 个发布日、156 个在 09-28 之前），把 pickRefineCandidates 的"每日保底名额"分薄，
+// 当日 97 条候选只抢到 3 席 → 当天页面几乎为空。
+const mkGovUrl = (ymd) => `https://www.ndrc.gov.cn/xxgk/zcfb/tz/${ymd.slice(0, 6)}/t${ymd}_1314267.html`;
+const ymdOf = (msAgo) => new Date(Date.now() - msAgo).toISOString().slice(0, 10).replace(/-/g, '');
+const GOV = { official: true, name: '国家发改委' };
+const NON_GOV = { name: '某技术博客' };
+
+T('时效: URL 救援出的旧日期不得绕过窗口（政务站 2021 年老文件——事故反例）', () => {
+  const kept = filterByFreshness([{ published_at: '', source_url: mkGovUrl('20211227'), title: '某通知' }], GOV);
+  return kept.length === 0;
+});
+T('时效: 非官方源救援出超 36h 的日期同样剔除（不得借救援绕过 HOURS_WINDOW）', () => {
+  const kept = filterByFreshness([{ published_at: '', source_url: mkGovUrl(ymdOf(5 * 86400000)) }], NON_GOV);
+  return kept.length === 0;
+});
+T('时效: 救援出窗口内日期照常进池且写好 published_at（官方源7天窗，正例不误伤）', () => {
+  const ymd = ymdOf(2 * 86400000);
+  const kept = filterByFreshness([{ published_at: '', source_url: mkGovUrl(ymd) }], GOV);
+  return kept.length === 1 && String(kept[0].published_at).startsWith(`${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`);
+});
+T('时效: 非官方源救援出当日日期进池（正例不误伤）', () => {
+  const kept = filterByFreshness([{ published_at: '', source_url: mkGovUrl(ymdOf(0)) }], NON_GOV);
+  return kept.length === 1;
+});
+T('时效: URL 也提不到日期时仍走 date_unknown 放行（不得被新逻辑改成静默丢弃）', () => {
+  const arts = [{ published_at: '', source_url: 'https://www.ndrc.gov.cn/xxgk/zcfb/tz/list.html', title: '无日期段' }];
+  const kept = filterByFreshness(arts, GOV);
+  return kept.length === 1 && kept[0]._date_unknown === true && kept[0].published_at === '';
+});
+
+// ── 精评保底只在近 N 日内分配（2026-10-01 同批修复；N=REFINE_GUARANTEE_DAYS）──
+const REF_TODAY = '2026-10-01';
+const bjDayIso = (off) => new Date(Date.UTC(2026, 9, 1 - off, 2, 0)).toISOString(); // 北京当日 10:00
+T('精评候选: 上百个历史发布日不得分薄当日保底（2026-10-01 事故复现，反例）', () => {
+  const todayISO = bjDayIso(0);
+  const hist = [];
+  for (let i = 1; i <= 160; i++) {
+    hist.push({ ai_score: 70 + (i % 20), published_at: new Date(Date.UTC(2021, 0, 1 + i, 2, 0)).toISOString() });
+  }
+  const todayItems = Array.from({ length: 20 }, () => ({ ai_score: 60, published_at: todayISO }));
+  const list = [...hist, ...todayItems].sort((a, b) => b.ai_score - a.ai_score);
+  const picked = pickRefineCandidates(list, {}, 30, REF_TODAY);
+  const todayN = picked.filter(a => a.published_at === todayISO).length;
+  return todayN >= 9 && picked.length === 30;
+});
+T('精评候选: 当日稿分数低于历史日时，保底仍归当日、历史日只能抢补齐余席（窗口口径）', () => {
+  const todayISO = bjDayIso(0), farISO = bjDayIso(REFINE_GUARANTEE_DAYS + 1);
+  const list = [
+    ...[70, 69, 68, 67].map(s => ({ ai_score: s, published_at: farISO })),   // 历史日：粗评更高
+    ...[50, 49, 48, 47].map(s => ({ ai_score: s, published_at: todayISO })), // 当日：粗评更低
+  ].sort((a, b) => b.ai_score - a.ai_score);
+  const picked = pickRefineCandidates(list, {}, 6, REF_TODAY);
+  const perDay = iso => picked.filter(a => a.published_at === iso).length;
+  // 新口径：当日 4 条全进（保底），历史日只拿剩下的 2 席（补齐）
+  // 旧口径：两个日桶各保底 3 条 → 当日只有 3 条进精评
+  return picked.length === 6 && perDay(todayISO) === 4 && perDay(farISO) === 2;
+});
+T('精评候选: 历史日不参与保底，但高分稿仍可经全局补齐进入（正例不误伤政策稿）', () => {
+  const histISO = bjDayIso(30), todayISO = bjDayIso(0);
+  const list = [
+    { ai_score: 95, published_at: histISO },
+    { ai_score: 60, published_at: todayISO },
+    { ai_score: 58, published_at: todayISO },
+  ].sort((a, b) => b.ai_score - a.ai_score);
+  const picked = pickRefineCandidates(list, {}, 30, REF_TODAY);
+  return picked.length === 3 && picked.some(a => a.published_at === histISO);
+});
+T('精评候选: 整轮只有历史日候选时退回旧口径，名额不空置（当日无稿的静日）', () => {
+  const list = [bjDayIso(30), bjDayIso(31)].flatMap(iso => [80, 78, 76].map(s => ({ ai_score: s, published_at: iso })));
+  const picked = pickRefineCandidates(list, {}, 30, REF_TODAY);
+  return picked.length === 6;
+});
+T('精评候选: todayKey 传非法值时不设窗口（退回旧行为，绝不因新参数把名额算成0）', () => {
+  const list = [bjDayIso(0), bjDayIso(200)].flatMap(iso => [80, 78].map(s => ({ ai_score: s, published_at: iso })));
+  const picked = pickRefineCandidates(list, {}, 30, 'not-a-date');
+  return picked.length === 4;
+});
 
 // ── 执行 ──
 let pass = 0;

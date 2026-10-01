@@ -11,22 +11,52 @@ const ARTICLE_URL_PATTERN = /qbitai\.com\/\d{4}\/\d{2}\/.+\.html$/;
 
 /**
  * 解析相对时间（如"4小时前"）为ISO日期字符串
+ *
+ * 2026-10-01 修复（"小程序今天没更新"排查中定位）：量子位列表页对 24–72 小时内的稿子
+ * 只写"昨天 15:58 / 前天 18:56 / 今天 08:30"这类中文日名，旧实现只认
+ * "N分钟前 / N小时前 / N天前 / YYYY-MM-DD"，遇到日名一律返回 null；
+ * 叠加 2026-09-29 的 date_unknown 通道（无日期稿不再冒充今日新稿、不进 AI 筛选、
+ * 不进"今日"主列表），结果是量子位最近一到两天的稿子被整批关进 date_key='unknown'，
+ * 首页从此看不见这个源。实测列表页 20 个时间标签里 12 个是"昨天/前天"，
+ * 旧实现只解析出 8 个。
+ *
+ * 时区口径：列表页这些标签是**北京墙钟**，而 Actions runner 在 UTC。
+ * 因此先把"现在"折算到北京日历日，再按 +08:00 解释标签上的时分，最后返回 UTC 的 ISO 串。
+ * collect.mjs 侧统一用 beijingDayKey(published_at) 归北京日，两端口径一致。
+ *
+ * 标签不带时刻时（极少见）取当日 12:00，既不谎报上午也不谎报深夜，
+ * 且不会因时区换算跨到相邻日。识别不了的一律返回 null，交给 date_unknown 通道，
+ * 绝不猜日期。
+ *
+ * 导出仅供单测使用（tests/test-pure.mjs 之外的纯函数面）。
  */
-function parseRelativeTime(text) {
+export function parseRelativeTime(text) {
   const now = Date.now();
-  const cleaned = text.trim();
+  const cleaned = String(text || '').trim();
 
-  const minMatch = cleaned.match(/(\d+)\s*分钟前/);
+  const minMatch = cleaned.match(/^(\d+)\s*分钟前/);
   if (minMatch) return new Date(now - parseInt(minMatch[1]) * 60 * 1000).toISOString();
 
-  const hourMatch = cleaned.match(/(\d+)\s*小时前/);
+  const hourMatch = cleaned.match(/^(\d+)\s*小时前/);
   if (hourMatch) return new Date(now - parseInt(hourMatch[1]) * 3600 * 1000).toISOString();
 
-  const dayMatch = cleaned.match(/(\d+)\s*天前/);
-  if (dayMatch) return new Date(now - parseInt(dayMatch[1]) * 86400 * 1000).toISOString();
+  const dayMatch = cleaned.match(/^(\d+)\s*天前/);
+  if (dayMatch) return new Date(now - parseInt(dayMatch[1]) * 86400000).toISOString();
+
+  // 中文日名：今天/今日、昨天/昨日、前天 + 可选 HH:MM
+  const cnDayMatch = cleaned.match(/^(今天|今日|昨天|昨日|前天)(?:\s*(\d{1,2}):(\d{2}))?/);
+  if (cnDayMatch) {
+    const back = { '今天': 0, '今日': 0, '昨天': 1, '昨日': 1, '前天': 2 }[cnDayMatch[1]];
+    const hh = cnDayMatch[2] !== undefined ? parseInt(cnDayMatch[2], 10) : 12;
+    const mi = cnDayMatch[3] !== undefined ? parseInt(cnDayMatch[3], 10) : 0;
+    if (hh > 23 || mi > 59) return null; // 越界不猜
+    const bj = new Date(now + 8 * 3600 * 1000); // 用 UTC getter 读出的就是北京墙钟
+    return new Date(Date.UTC(bj.getUTCFullYear(), bj.getUTCMonth(),
+      bj.getUTCDate() - back, hh - 8, mi)).toISOString();
+  }
 
   const dateMatch = cleaned.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
-  if (dateMatch) return new Date(`${dateMatch[1]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[3].padStart(2,'0')}`).toISOString();
+  if (dateMatch) return new Date(`${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`).toISOString();
 
   return null;
 }
