@@ -1195,7 +1195,21 @@ ${list}
 /**
  * 跨期查重：把本轮入选文章与"近期已发布文章（当日+近期）"做一次专门的同事件比对。
  * 命中已发布事件的候选一律丢弃（已发布篇有摘要、可能已进精选，优先保留）。
- * 提示词保守校准：只认"同主体+同具体事件"，跨语言/跨标题措辞也能识别；任何异常静默跳过。
+ *
+ * 2026-10-08 改：判重从"主题聚合"逼回"一对一指认同一次发布动作"（v2）。
+ * 原提示词只要模型说"同一主体的同一核心事件域"就会整批剔除，实测把当日头条级新事件杀掉：
+ * 10-07 OpenAI 成批放出 722 篇数学手稿（89分，机器之心 / 84分，The Verge）被以
+ * "A组已密集报道 OpenAI 千禧年难题、数学反例等同一主体事件域"为由判成旧闻重报，
+ * 同日 Mistral Large 4、Decisions API 等等同家族。例外条款在"聚合判重"面前完全不起作用。
+ * 新口径两条硬要求：
+ *   甲 判重必须指名 A 组中具体某一条为"同一次发布动作"，并在 pairs 里给出 b↔a 配对；
+ *      指认不出具体那一条（只能说"同一研究方向/同一系列进展"）一律保留；
+ *   乙 明令禁止把 A 组多条稿聚合成"事件域/集群/持续冲击"来判重——十条相关稿也不等于一次发布。
+ * 代码侧同步收口：**只有带有效 a 配对的 b 才允许剔除**（parseDupPairs 丢弃无配对项），
+ * 让"模型随口判重"失去执行力；配对同时进日志，事后能查它是跟谁判的重。
+ * 对照实验（真实模型、各重复跑）：成批发布那条由"三轮全杀"变"三轮全保留"；
+ * 同批双口径（722篇 vs 372结果族）4/4 仍判重、EmbeddingGemma 回归 3/3 仍判重——见
+ * tests/exp-cross-dedup-v2.mjs。任何异常仍静默跳过（不影响主流程）。
  * @param {Array} candidates - 本轮入选文章（分数降序）
  * @param {Array<string>} publishedTitles - 近期（当日+近RECENT_TITLE_DAYS天）已入库文章标题
  */
@@ -1204,14 +1218,17 @@ export async function crossRoundDedup(candidates, publishedTitles = []) {
   // 截断120条：覆盖"当日已发布+近10天"（每日10-20条），标题按时间倒序，截断只丢最旧的
   const pubList = publishedTitles.slice(0, 120).map((t, i) => `[A${i + 1}] ${t}`).join('\n');
   const candList = candidates.map((a, i) => `[B${i + 1}] ${a.title}`).join('\n');
-  const prompt = `A组是近期已发布的文章，B组是"待发布候选"。请找出B组中与A组报道同一核心事件的条目（这些候选属于旧闻重报，应剔除）。
+  const prompt = `A组是近期已发布的文章，B组是"待发布候选"。请找出B组中与A组某一条报道**同一次发布动作**的条目（这些候选属于旧闻重报，应剔除）。
 
-判定标准（先按1-2判是否重复，再看3-4例外，例外优先）：
+判定标准（先做一对一指认，再判重复）：
+甲. 一条B候选要判为重复，必须指名A组中**具体某一条**已发布文章与它报道的是**同一次发布动作**（同一次官宣/同一天的同一次放出/同一批产出），并在输出里给出 b 与 a 的配对。指认不出具体那一条，或只能说出"同一主体的同一研究方向/同一系列进展"，一律**不算重复，必须保留**。
+乙. 严禁把A组多条报道聚合成"某个事件域/事件集群/持续冲击/同一主题的多次报道"来判重：A组里有十条相关稿，也不等于一次发布。重复只认一对一。
 1. 同一主体的同一具体事件算重复（即使标题差异很大、报道角度不同或中英文不同，如一篇"发布开放权重"一篇"开源XX参数"，只要是同一次发布，也算）
-2. 同一次发布/官宣的后续报道角度都算重复：官方宣发造势（创始人站台/演示/内部使用）、跟进分析、跑分解读、成本测算、战略点评——即使补充了新数据（基准分数、价格、依赖关系），核心事件仍是那一次发布；同一次人事/组织变动的后续角度（股价影响、内部反应、接任者背景）同样算重复
+2. 同一次发布动作的后续报道角度都算重复：官方宣发造势（创始人站台/演示/内部使用）、跟进分析、跑分解读、成本测算、战略点评——即使补充了新数据（基准分数、价格、依赖关系），核心事件仍是那一次发布；同一次人事/组织变动的后续角度（股价影响、内部反应、接任者背景）同样算重复。同一批产出的不同计数口径（如 722 篇手稿 / 372 个结果族、总数与子集数、中英文各报一次）属同一次发布，必须判重
 3. 例外A（独立新事件，保留）：做事的主体换成了另一家公司。如已发布"A公司开源某模型"，候选是"B公司宣布完成该模型适配/接入自家平台"，这是B公司自己的新动作，不算重复
 4. 例外B（事件出现新状态，保留）：事件本身发生了后续变化。如：融资传闻→正式官宣、发布→被曝重大缺陷/客户暂停使用/产品下架、事故→官方调查结论、当事方对争议作出正式回应
-5. 拿不准的不要列入，宁漏勿错。B组完全可能一条重复都没有（这是常态而非例外），没有就返回空数组，严禁为了输出结果而凑数
+5. 例外C（新一批可数产出，保留）：你指认到的那条A稿只是**单项成果**的宣布，而候选报道的是同一主体在之后**一次性放出新一批可数产出**（论文/手稿/数据集/基准/模型/客户，给出数量级，或伴随新的机构声明）——这构成新一次发布动作，不算重复
+6. 拿不准的不要列入，宁漏勿错。B组完全可能一条重复都没有（这是常态而非例外），没有就返回空配对，严禁为了凑结果而配对
 
 已发布(A组)：
 ${pubList}
@@ -1219,26 +1236,34 @@ ${pubList}
 待发布候选(B组)：
 ${candList}
 
-请先对B组每条候选各用一行简述判定结论与依据的条款号（这一步是判准的关键，不可省略），
-最后一行输出JSON，dup数组元素必须是纯数字（B组编号的数字部分，严禁带"B"前缀），无重复时dup为空数组：
-{"dup": [1, 3]}`;
+请先对B组每条候选各用一行输出：要么"重复：与A_k同一次发布，依据条款…"，要么"保留：指认不出与A组任何一条是同一次发布（依据甲/例外…）"（这一步是判准的关键，不可省略），
+最后一行输出JSON，只列确属同一次发布的配对，元素必须是纯数字字段（严禁带"B"前缀），无重复时 pairs 为空数组：
+{"pairs": [{"b": 1, "a": 3}]}`;
   try {
     const response = await callQwen([
-      { role: 'system', content: '你是资讯查重助手，先逐条给出判定理由，最后一行输出JSON。' },
+      { role: 'system', content: '你是资讯查重助手。判重必须一对一指认，先逐条给结论，最后一行输出JSON。' },
       { role: 'user', content: prompt },
     ], 0.1); // 低温度：查重要稳定保守
     const m = response.match(/\{[\s\S]*\}/);
     if (!m) return candidates;
-    const dup = parseDupIndexes(m[0]);
-    if (!dup.length) return candidates;
-    const drop = new Set(dup.map(n => n - 1).filter(i => Number.isInteger(i) && i >= 0 && i < candidates.length));
+    const pairs = parseDupPairs(m[0]);
+    if (!pairs.length) return candidates;
+    // 硬收口：只有指认出有效 A 配对的候选才允许被剔除（无 a / 越界的判重一律不采纳）
+    const pubN = Math.min(publishedTitles.length, 120);
+    const drop = new Map(pairs
+      .filter(p => Number.isInteger(p.b) && p.b >= 1 && p.b <= candidates.length
+        && Number.isInteger(p.a) && p.a >= 1 && p.a <= pubN)
+      .map(p => [p.b - 1, p.a]));
     if (!drop.size) return candidates;
-    console.log(`跨期查重: 剔除与近期已发布同事件的旧闻重报 ${drop.size} 条`);
+    console.log(`跨期查重: 剔除与近期已发布同一次发布的旧闻重报 ${drop.size} 条`);
     // 被杀必须可见（与漏报对账同哲学）：只记总数无法事后定位误杀
     // （2026-08-28晚: 腾讯Hy4开源/量子位Claude机械臂疑似死于此层却无痕迹可查）
-    for (const i of [...drop].sort((x, y) => x - y)) {
+    // 2026-10-08 追加：必须连同"它跟哪一条判的重"一起打出来，否则误杀无法事后定位
+    for (const i of [...drop.keys()].sort((x, y) => x - y)) {
       const c = candidates[i];
-      console.log(`  [CROSS-DROP] [${c?.ai_score}分] ${String(c?.title || '').slice(0, 50)}`);
+      const aIdx = drop.get(i);
+      const aTitle = String(publishedTitles[aIdx - 1] || '').slice(0, 46);
+      console.log(`  [CROSS-DROP] [${c?.ai_score}分] ${String(c?.title || '').slice(0, 50)} ← 指认A${aIdx}《${aTitle}》`);
     }
     return candidates.filter((_, i) => !drop.has(i));
   } catch (err) {
@@ -1272,6 +1297,39 @@ export function parseDupIndexes(jsonText) {
       return digits ? Number(digits[0]) : NaN;
     })
     .filter(Number.isFinite);
+}
+
+/**
+ * 解析跨期查重响应中的 pairs 配对数组（纯函数，供测试）。
+ * 制度意义：判重必须"一对一指认到 A 组具体某一条"，所以**没有有效 a 的配对一律丢弃**——
+ * 这是把模型的自由裁量收在代码层：它若随口说"重复"却给不出跟哪一次发布重复，就不许剔人。
+ * 容错口径与 parseDupIndexes 同源：LLM 编号偶带 "B1" 前缀或未加引号，双路兜底。
+ * @param {string} jsonText - 响应中匹配到的 JSON 文本
+ * @returns {Array<{b:number,a:number}>} - 有效配对（1-based）；无法解析或缺 a 的项被丢弃
+ */
+export function parseDupPairs(jsonText) {
+  let raw;
+  try {
+    raw = JSON.parse(jsonText).pairs;
+  } catch {
+    const arr = jsonText.match(/"?pairs"?\s*:\s*\[([\s\S]*)\]/);
+    if (!arr) return [];
+    // 正则兜底：逐项抓 {b..a..}，容忍未加引号的键与 "B1" 式值
+    raw = [...arr[1].matchAll(/\{\s*"?b"?\s*:\s*[^,}]+,\s*"?a"?\s*:\s*[^}]+/g)]
+      .map(s => s[0].match(/\d+/g))
+      .filter(Boolean)
+      .map(nums => ({ b: Number(nums[0]), a: Number(nums[1]) }));
+  }
+  if (!Array.isArray(raw)) return [];
+  const num = v => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+    const d = String(v ?? '').match(/\d+/);
+    return d ? Number(d[0]) : NaN;
+  };
+  return raw
+    .filter(p => p && typeof p === 'object')
+    .map(p => ({ b: num(p.b), a: num(p.a) }))
+    .filter(p => Number.isFinite(p.b) && Number.isFinite(p.a)); // 缺 a 的判重不采纳
 }
 
 /**

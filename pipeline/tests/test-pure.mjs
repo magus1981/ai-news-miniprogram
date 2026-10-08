@@ -10,7 +10,7 @@
 import { canonicalizeName, canonicalizeTagsObject } from '../tag-canonical.mjs';
 import { applyTagInvariants } from '../classify-rules.mjs';
 import {
-  parseDupIndexes, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
+  parseDupIndexes, parseDupPairs, parseDupGroups, normalizeSubScores, detectScoreCollapse, mergeIntoKept,
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
   selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND, BACKFILL_MAX,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
@@ -778,6 +778,31 @@ T('精评候选: todayKey 传非法值时不设窗口（退回旧行为，绝不
   const list = [bjDayIso(0), bjDayIso(200)].flatMap(iso => [80, 78].map(s => ({ ai_score: s, published_at: iso })));
   const picked = pickRefineCandidates(list, {}, 30, 'not-a-date');
   return picked.length === 4;
+});
+
+
+// ── 跨期查重 pairs 配对口径（2026-10-08 改：判重必须一对一指认）──
+T('查重配对: 合法 b↔a 配对正常解析', () => {
+  const r = parseDupPairs('{"pairs": [{"b": 2, "a": 1}]}');
+  return r.length === 1 && r[0].b === 2 && r[0].a === 1;
+});
+T('查重配对: 无重复时空数组', () => parseDupPairs('{"pairs": []}').length === 0);
+T('查重配对: 带B/A前缀或字符串编号仍提得出来', () => {
+  const r = parseDupPairs('{"pairs": [{"b": "B2", "a": "A1"}]}');
+  return r.length === 1 && r[0].b === 2 && r[0].a === 1;
+});
+T('查重配对: JSON 破损时正则兜底', () => {
+  const r = parseDupPairs('{pairs: [{b: B2, a: A1}, {b: 3, a: 1}]}');
+  return r.length === 2 && r[1].b === 3;
+});
+T('查重配对: 只有b没有a的"随口判重"一律不采纳（反例：剔人必须有指认对象）', () => {
+  return parseDupPairs('{"pairs": [{"b": 3}]}').length === 0;
+});
+T('查重配对: a为null或非数字同样不采纳', () => {
+  return parseDupPairs('{"pairs": [{"b": 1, "a": null}, {"b": 2, "a": "无"}]}').length === 0;
+});
+T('查重配对: 垃圾输入返回空数组（不得抛异常把整层查重带崩）', () => {
+  return parseDupPairs('not json at all').length === 0 && parseDupPairs('{}').length === 0;
 });
 
 // ── 执行 ──
