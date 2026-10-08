@@ -169,10 +169,22 @@ export async function initDB() {
  * 优先返回原标题（英文源），否则用中文标题
  * LIMIT 200：对照窗口拉长到10天后（每日10-20条），原LIMIT 100 会把最旧几天静默截没，
  * 而"这个产品之前推过没有"正是旧闻判定的唯一依据
+ *
+ * 必须排除哨兵 date_key='unknown'（2026-10-08 事故）：SQLite 的字符串比较里
+ * 'unknown' > 任何 'YYYY-MM-DD'，只写 `date_key >= date(...)` 时归期失败的稿子不但进得了
+ * 窗口，还被 ORDER BY date_key DESC 排到对照池最前面。这些稿按设计从不上任何日页
+ * （只在 scope=all 可见），却成了"已发布事件"的证据——当天 92/89/84 分的 GPT-6 全面开放、
+ * OpenAI 722 篇数学成果等头条级候选全被跨期查重 [CROSS-DROP]，首页最高分被压到 80、
+ * 精选只剩 1 条（正常 2~5 条）。第二个伤害更隐蔽：池按 DESC 截断 200 条，
+ * 幽灵占的 20 个名额会把窗口内最旧一天的真实稿挤没。
+ * 口径与本文件 findExistingByEventNorm 里现成的 `AND date_key != 'unknown'` 对齐——
+ * 事件级查重早就排除了这个哨兵桶，标题级对照池却漏了，两道闸喂给模型的事实源不一致。
+ * 回归闸见 tests/test-recent-titles.mjs（未修代码上必 FAIL）。
  */
 export async function getRecentTitles(days = 3) {
   const sql = `SELECT title, original_title FROM articles
     WHERE date_key >= date('now', '-${days} days')
+      AND date_key != 'unknown'
     ORDER BY date_key DESC LIMIT 200`;
   try {
     let rows;
