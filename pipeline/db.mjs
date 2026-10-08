@@ -19,10 +19,12 @@ let db;
 if (LOCAL_MODE) {
   // 本地模式：使用 better-sqlite3
   const Database = (await import('better-sqlite3')).default;
-  const dbPath = join(__dirname, '..', 'data', 'articles.db');
+  // ARTICLES_DB_PATH 允许把库指向别处：素材闸门回归测试（_test_gates.mjs）必须写临时库，
+  // 绝不能碰开发库。未设置时行为与改动前逐字节一致。
+  const dbPath = process.env.ARTICLES_DB_PATH || join(__dirname, '..', 'data', 'articles.db');
   // 确保data目录存在
   const { mkdirSync } = await import('fs');
-  mkdirSync(join(__dirname, '..', 'data'), { recursive: true });
+  mkdirSync(dirname(dbPath), { recursive: true });
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   console.log(`本地模式: 数据库文件 ${dbPath}`);
@@ -452,7 +454,8 @@ export async function insertQuarantine(articles, defaultStage = 'summary') {
   let n = 0;
   for (const a of articles) {
     const reason = a._proc_reason || a.__reason || (a._score_fallback ? '评分降级（AI不可用）' : defaultStage);
-    const stage = a._score_fallback ? 'scoring' : (a.__mojibake ? 'charset' : defaultStage);
+    // _proc_stage 允许加工环节自带失败归属（如素材闸门的 'material'），未给时按既有推断口径
+    const stage = a._proc_stage || (a._score_fallback ? 'scoring' : (a.__mojibake ? 'charset' : defaultStage));
     const args = [
       a.source_url, a.title || '', a.original_title || null, a.source_name || '',
       a.category || '', a.language || '', a.source_type || '',

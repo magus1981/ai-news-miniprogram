@@ -48,7 +48,10 @@ export async function scrapeXinzhiyuan(source) {
         if (seenUrls.has(href)) return;
         seenUrls.add(href);
 
-        // 列表卡片无摘要文本，用标题占位；正文由 fetch-content 阶段抓详情页补全
+        // 列表卡片确实没有摘要文本——但绝不能再拿标题占位（2026-10-08 假新闻事故 id 2228）。
+        // 旧写法 content_snippet: title 让下游 ai-summary/ai-review 的 `content_snippet || title`
+        // 兜底拿"标题+标题"当正文喂模型，模型就凭"封杀AI"四个字编出了一条不存在的禁令。
+        // 现在留空，正文一律由 fetch-content 抓详情页补全；补不到就被素材闸门隔离，不进 articles。
         const publishedAt = card.find('time[datetime]').attr('datetime') || null;
 
         articles.push({
@@ -58,7 +61,7 @@ export async function scrapeXinzhiyuan(source) {
           category: source.category,
           language: source.language,
           source_type: source.source_type,
-          content_snippet: title,
+          content_snippet: '',
           published_at: publishedAt ? new Date(publishedAt).toISOString() : null,
         });
       });

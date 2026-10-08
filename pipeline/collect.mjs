@@ -19,6 +19,7 @@ import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
 import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine, findExistingByTitleNorm, findExistingByEventNorm, bumpMergedCount } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
+import { demoteFeaturedWithoutFullText } from './material.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
 import { auditMisses } from './miss-audit.mjs';
@@ -641,6 +642,11 @@ async function main() {
   const roundupSubs = selected.filter(a => a.from_roundup);
   if (roundupSubs.length) console.log(`  ${roundupSubs.length} 条拼盘子事件跳过全文抓取（使用拆条摘录素材）`);
   await fetchFullContents(selected.filter(a => !a.from_roundup));
+  // 精选位只给拿到全文的稿（2026-10-08 假新闻事故 id 2228）：评分发生在全文抓取之前，
+  // 标完精选才可能发现正文没抓到（2228 就是 112 字壳页稿带着 92 分进了"今日必读"）。
+  // 无全文的稿子即使素材够生成摘要（真实 RSS 片段），也只走普通列表。
+  const demotedFeatured = demoteFeaturedWithoutFullText(selected);
+  if (demotedFeatured) console.log(`  精选降级: ${demotedFeatured} 条因无全文素材摘除精选位`);
   console.log('');
   console.log('--- Step 3: AI总结生成 ---');
   const summarized = await generateSummaries(selected);

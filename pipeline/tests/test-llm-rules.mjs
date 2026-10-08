@@ -19,8 +19,20 @@ if (!process.env.DASHSCOPE_API_KEY) {
   process.exit(1);
 }
 
-// 用例正文较短（<200字）时 generateSummary 会取 content_snippet，故两处都填
-const A = (over) => ({ language: 'zh', source_name: '测试源', category: 'company', content_snippet: over.content, ...over });
+// 素材闸门（2026-10-08 起，见 material.mjs）：正文不足 MIN_MATERIAL_CHARS 字的稿子
+// 会在 generateSummary 入口直接被标记隔离、不调模型。本文件的用例正文必须达到真实稿长度，
+// 否则用例测的就不再是"规则判得对不对"，而是在验证闸门。故下面每个 fixture 都写成完整正文，
+// 并由 A() 硬性校验长度，短了立刻报错退出，不允许静默降级成隔离。
+import { MIN_MATERIAL_CHARS, pickMaterial } from '../material.mjs';
+
+const A = (over) => {
+  const article = { language: 'zh', source_name: '测试源', category: 'company', ...over, content_snippet: over.content };
+  if (!pickMaterial(article)) {
+    console.error(`FATAL: 用例正文不达素材闸门下限（${(over.content || '').length} < ${MIN_MATERIAL_CHARS} 字），需补全正文: ${over.title}`);
+    process.exit(1);
+  }
+  return article;
+};
 const tagsOf = (r) => JSON.parse(r.tags);
 
 const CASES = [
@@ -28,7 +40,7 @@ const CASES = [
     id: 'C1', desc: '平台事件不是观点（曾误入opinion的HF深度伪造类）→ company',
     article: A({
       title: '开源模型平台被曝遭滥用批量生成名人深度伪造图像',
-      content: '有调查发现，某大型开源模型托管平台上的多个图像生成模型被滥用，批量生成名人深度伪造图像并在社交网络传播。平台方回应称已下架相关模型并加强内容审核策略，研究者呼吁建立更严格的模型上架审查机制。',
+      content: '有调查发现，某大型开源模型托管平台上的多个图像生成模型被滥用，批量生成名人深度伪造图像并在社交网络传播。研究者称，这些模型在开放权重发布后一周内即被第三方包装成免审核的换脸服务，单次生成成本不足一分钱。平台方回应称已下架相关模型并加强内容审核策略，要求上传者提交身份核验，同时呼吁建立更严格的模型上架审查机制与跨平台的滥用样本共享库。',
     }),
     check: (r) => r.category === 'company',
   },
@@ -36,7 +48,7 @@ const CASES = [
     id: 'C2', desc: '机构趋势报告是观点不是技术（曾误入technology的斯坦福HAI类）→ opinion',
     article: A({
       title: '斯坦福HAI发布年度AI指数报告：推理成本一年下降90%',
-      content: '斯坦福大学以人为本AI研究院（HAI）发布年度AI指数报告，指出过去一年大模型推理成本下降约90%，开放权重模型与闭源模型的性能差距缩小到个位数百分点，企业AI采用率显著上升，报告还就AI治理与人才流动给出多项趋势判断。',
+      content: '斯坦福大学以人为本AI研究院（HAI）发布年度AI指数报告，指出过去一年大模型推理成本下降约90%，开放权重模型与闭源模型的性能差距缩小到个位数百分点，企业AI采用率显著上升。报告同时警告，各国AI监管规则的落地进度明显落后于模型能力扩张速度，约三分之二的受访企业尚无成文的模型使用规范。报告还就AI治理与人才流动给出多项趋势判断，并附完整评测方法与免责声明。',
       category: 'technology',
     }),
     check: (r) => r.category === 'opinion',
@@ -45,7 +57,7 @@ const CASES = [
     id: 'C3', desc: '模型发布事件归company不归technology',
     article: A({
       title: '智谱发布GLM-5：多项基准超越上一代',
-      content: '智谱AI今日正式发布新一代基座模型GLM-5，官方称其在数学、代码、长文本等多项基准测试中大幅超越上一代产品，并同步开放API。定价与上一代持平，企业客户可申请专属部署。',
+      content: '智谱AI今日正式发布新一代基座模型GLM-5，官方称其在数学、代码、长文本等多项基准测试中大幅超越上一代产品，并同步开放API。定价与上一代持平，企业客户可申请专属部署。官方技术报告披露GLM-5采用混合专家结构，上下文窗口扩展至20万tokens，并在中文长文理解与工具调用两个内部基准上取得最高分。',
       category: 'technology',
     }),
     check: (r) => r.category === 'company',
@@ -54,7 +66,7 @@ const CASES = [
     id: 'T1', desc: '被接入的第三方厂商不打标（曾把科大讯飞新闻挂到阿里）→ 只留发布方',
     article: A({
       title: '科大讯飞发布星火智能路由平台，支持接入通义千问、智谱GLM等第三方模型',
-      content: '科大讯飞今日发布星火智能路由平台，面向企业提供多模型统一接入与治理能力，除星火大模型外还支持接入阿里巴巴通义千问、智谱GLM、DeepSeek等第三方模型，实现按任务自动路由与成本优化。',
+      content: '科大讯飞今日发布星火智能路由平台，面向企业提供多模型统一接入与治理能力，除星火大模型外还支持接入阿里巴巴通义千问、智谱GLM、DeepSeek等第三方模型，实现按任务自动路由与成本优化。平台方称，路由层可按延迟预算与单价自动选择后端模型，试点企业平均推理成本下降两成。本次发布由科大讯飞单独官宣，上述第三方模型厂商未参与联合发布，仅作为被接入对象被列举。',
     }),
     check: (r) => {
       const c = tagsOf(r).companies;
@@ -65,7 +77,7 @@ const CASES = [
     id: 'T2', desc: '子品牌归并母公司（淘天→阿里巴巴）',
     article: A({
       title: '阿里巴巴旗下淘天集团上线AI导购助手',
-      content: '阿里巴巴旗下淘天集团宣布在淘宝App全量上线AI导购助手，基于通义大模型提供商品比价、搭配推荐与售后问答服务，首月覆盖用户预计过亿。',
+      content: '阿里巴巴旗下淘天集团宣布在淘宝App全量上线AI导购助手，基于通义大模型提供商品比价、搭配推荐与售后问答服务，首月覆盖用户预计过亿。该助手在灰度期间已接入超过300个类目，转化率较传统搜索排序提升约8%。淘天集团为阿里巴巴全资子品牌，本次功能由集团统一对外口径发布。',
     }),
     check: (r) => {
       const c = tagsOf(r).companies;
@@ -76,7 +88,7 @@ const CASES = [
     id: 'T3', desc: '对比提及的竞品不打标（基准超越谷歌只留发布方）',
     article: A({
       title: '微软发布Phi-5小模型，基准测试超越谷歌Gemma与Meta Llama同级产品',
-      content: '微软今日发布Phi-5系列小参数模型，官方基准显示其在同参数量级上超越谷歌Gemma和Meta Llama的对应版本，主打端侧部署与低成本推理，即日起在Azure上提供。',
+      content: '微软今日发布Phi-5系列小参数模型，官方基准显示其在同参数量级上超越谷歌Gemma和Meta Llama的对应版本，主打端侧部署与低成本推理，即日起在Azure上提供。微软称该系列训练数据以合成教材为主，单个模型的下载体积控制在4GB以内。谷歌与Meta未发布同级新版本，两家仅作为被对比的基准对象出现在微软的图表中。',
     }),
     check: (r) => {
       const c = tagsOf(r).companies;
@@ -87,7 +99,7 @@ const CASES = [
     id: 'T4', desc: '标题即对比宣称时被超越方也不打标（#501 OpenAI宣称超越Opus 5误挂Anthropic真实案例）',
     article: A({
       title: 'OpenAI声称GPT-5.6 Sol在ARC-AGI-3上超越Opus 5',
-      content: 'OpenAI宣布其最新的GPT-5.6 Sol模型在ARC-AGI-3逻辑基准测试中，通过自定义的Responses API达到了38.3%的得分，超过了Anthropic的Claude Opus 5的30.2%。然而在官方测试环境中，GPT-5.6 Sol的得分仅为9.8%，因为该环境不支持保留推理和压缩功能，这一结果引发了关于测试公平性的讨论。',
+      content: 'OpenAI宣布其最新的GPT-5.6 Sol模型在ARC-AGI-3逻辑基准测试中，通过自定义的Responses API达到了38.3%的得分，超过了Anthropic的Claude Opus 5的30.2%。然而在官方测试环境中，GPT-5.6 Sol的得分仅为9.8%，因为该环境不支持保留推理和压缩功能，这一结果引发了关于测试公平性的讨论。Anthropic未就本次宣称作出回应，也未参与该项测试环境的设计。',
     }),
     check: (r) => {
       const c = tagsOf(r).companies;
@@ -98,7 +110,7 @@ const CASES = [
     id: 'T5', desc: '观点文章只填观点持有者，旁证式顺带提及不打标（#592 Karp文章误挂纳德拉真实案例）',
     article: A({
       title: 'Palantir CEO Alex Karp称AI行业具有“马克思主义”倾向',
-      content: 'Palantir首席执行官Alex Karp在季度股东信中警告，AI前沿实验室对企业来说不够可靠，其商业模式带有马克思主义意味，意在控制合作伙伴的生产资料。Palantir第二季度营收19亿美元，同比增长93%。文章还提到，微软CEO萨提亚·纳德拉此前也表达过类似观点。',
+      content: 'Palantir首席执行官Alex Karp在季度股东信中警告，AI前沿实验室对企业来说不够可靠，其商业模式带有马克思主义意味，意在控制合作伙伴的生产资料。Palantir第二季度营收19亿美元，同比增长93%。文章末尾顺带提到，微软CEO萨提亚·纳德拉此前在播客中也表达过类似看法，但纳德拉本人未就本封信置评，也不是本文的采访对象。',
       category: 'opinion',
     }),
     check: (r) => {
@@ -110,7 +122,7 @@ const CASES = [
     id: 'R1', desc: '针对性政策只填主体国（美国禁令不带中国）',
     article: A({
       title: '美国计划对中国AI模型实施选择性禁令',
-      content: '美国政府正在起草一项针对中国AI模型的选择性禁令方案，拟禁止联邦机构及关键基础设施部门采购和部署来自中国的大语言模型。美国商务部拒绝置评，多家美国科技公司警告过度限制可能损害开放生态。',
+      content: '美国政府正在起草一项针对中国AI模型的选择性禁令方案，拟禁止联邦机构及关键基础设施部门采购和部署来自中国的大语言模型。方案尚处于内部征求意见阶段，最终清单由美国商务部拟定。美国商务部拒绝置评，多家美国科技公司警告过度限制可能损害开放生态。中国方面未被纳入任何政策制定环节，仅作为被限制对象出现在草案文本中。',
       category: 'policy',
     }),
     check: (r) => {
@@ -122,7 +134,7 @@ const CASES = [
     id: 'R2', desc: '非政策文章不留国别（代码不变量兜底，城市/国别一律清空）',
     article: A({
       title: '萝卜快跑在伦敦启动右舵全无人公开道路测试',
-      content: '百度旗下萝卜快跑宣布在伦敦启动右舵车型的全无人公开道路测试，这是其进入欧洲市场的第一步，首批投放30辆车，与当地监管机构合作推进安全审查。',
+      content: '百度旗下萝卜快跑宣布在伦敦启动右舵车型的全无人公开道路测试，这是其进入欧洲市场的第一步，首批投放30辆车，与当地监管机构合作推进安全审查。测试区域覆盖伦敦市中心两条主要干道，运营时段为每日早七点至晚十点。本次为百度单方宣布的商业化进展，不涉及任何国家的政策或监管动作。',
     }),
     check: (r) => r.category !== 'policy' ? tagsOf(r).regions.length === 0 : true,
   },
@@ -130,7 +142,7 @@ const CASES = [
     id: 'R3', desc: '多国联合发布两边都是主体',
     article: A({
       title: '美英联合签署前沿AI安全评估互认协议',
-      content: '美国和英国两国政府今日联合签署前沿AI安全评估互认协议，双方的AI安全研究所将互认对方的模型安全评估结果，共享红队测试方法与风险数据库，协议自签署之日起生效。',
+      content: '美国和英国两国政府今日联合签署前沿AI安全评估互认协议，双方的AI安全研究所将互认对方的模型安全评估结果，共享红队测试方法与风险数据库，协议自签署之日起生效。两国联合声明称，首批互认将覆盖参数量超过1万亿的前沿模型。欧盟、日本等国被问及是否将加入，目前未在本次签署方之列。',
       category: 'policy',
     }),
     check: (r) => {
@@ -142,7 +154,7 @@ const CASES = [
     id: 'O1', desc: '开源特权：开放权重发布优先归opensource',
     article: A({
       title: '月之暗面开源Kimi新版基座模型权重',
-      content: '月之暗面宣布开源新版Kimi基座模型的完整权重，采用宽松开源协议允许商用，同步发布训练细节技术报告，社区可在Hugging Face直接下载。',
+      content: '月之暗面宣布开源新版Kimi基座模型的完整权重，采用宽松开源协议允许商用，同步发布训练细节技术报告，社区可在Hugging Face直接下载。公司称本次开源涵盖稠密版与混合专家版两组权重，最大单模型参数规模为1万亿。协议明确允许下游微调与再分发，无需另行授权。',
     }),
     check: (r) => r.category === 'opensource',
   },

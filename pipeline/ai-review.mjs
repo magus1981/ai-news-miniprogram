@@ -9,9 +9,11 @@
  * 发现问题时由审稿模型直接给出修正稿，代码侧替换；二审自身失败则放行原稿（安全网不是闸门）
  */
 import { normalizeTags, normalizeKeyPoints } from './ai-summary.mjs';
+import { pickMaterial, groundedAssertions, markQuarantine, isQuarantined, QUARANTINE_REASONS, MIN_MATERIAL_CHARS } from './material.mjs';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+// 与 ai-summary 同一约定：DASHSCOPE_API_URL 仅供回归测试桩服务使用，线上不设该变量
+const API_URL = process.env.DASHSCOPE_API_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 // 二审与摘要同为强事实性任务（每天仅20篇），默认旗舰模型；可用 REVIEW_MODEL 覆盖
 const REVIEW_MODEL = process.env.REVIEW_MODEL || 'qwen-max';
 
@@ -39,14 +41,45 @@ async function callReviewer(messages) {
 }
 
 /**
+ * 安全解析库里存的 JSON 数组字段（key_points 是 JSON 字符串）。
+ * 解析失败返回 []——回指校验宁可把要点当空处理，也不能因脏数据抛异常打断整轮采集。
+ */
+function safeParseArray(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 审校单篇文章的摘要，返回（可能被修正过的）文章对象
  * @param {Object} article - 已生成摘要的文章（含 content/content_snippet/related_titles）
  */
 export async function reviewSummary(article) {
-  if (!DASHSCOPE_API_KEY || !article.summary) return article;
+  // 素材闸门放在 API Key 判断之前：有没有料是稿件本身的属性，与当轮是否配置了模型无关。
+  // 放在后面会让"无 Key 降级跑"的那一轮漏掉隔离标记，稿件直接写进 articles。
+  if (isQuarantined(article)) return article; // 已被摘要环节判死的稿不再送审：它没有素材可审
 
-  const hasFullText = (article.content || '').length >= 200;
-  const material = hasFullText ? article.content : (article.content_snippet || article.title);
+  // 与 ai-summary 共用同一个取料函数（2026-10-08 事故复盘：二审原先用 `(content_snippet || title)`
+  // 这同一个 fallback，等于审稿人和写稿人看着同一份"标题当正文"的假素材——二审自然挑不出毛病，
+  // 安全网和被护的对象拿到了同样的错误输入，这道防线形同虚设）
+  const mat = pickMaterial(article);
+  if (!mat) {
+    console.warn(`  [QUARANTINE] 二审无可用素材，隔离不入库: ${String(article.title || '').slice(0, 45)}`);
+    return markQuarantine(
+      article,
+      QUARANTINE_REASONS.MISSING_BODY,
+      `content=${(article.content || '').length}字, content_snippet=${(article.content_snippet || '').length}字（低于${MIN_MATERIAL_CHARS}字下限、或与标题等同、或为壳页）`,
+    );
+  }
+  const hasFullText = mat.hasFullText;
+  const material = mat.material;
+
+  if (!DASHSCOPE_API_KEY || !article.summary) return article;
   const relatedBlock = (article.related_titles || []).length
     ? `\n同一事件其他媒体报道标题（可作为公司归属等事实的旁证）：\n${article.related_titles.map(t => `- ${t}`).join('\n')}\n`
     : '';
@@ -55,6 +88,13 @@ export async function reviewSummary(article) {
   const mergedBlock = (article.related_snippets || []).length
     ? `\n【同来源合并素材】本条新闻合并了 ${article.source_name} 同期关于此事的其余稿件，以下内容与上方原文同等有效，摘要引用它们的事实不算编造：\n${article.related_snippets.map(s => `- ${s.title}：${s.snippet}`).join('\n')}\n`
     : '';
+
+  // 回指比对范围 = 交给审稿模型的素材集合，一字不差地同一口径（见 ai-summary 同名变量注释）
+  const groundingCorpus = [
+    material,
+    ...(article.related_snippets || []).map(s => `${s.title || ''} ${s.snippet || ''}`),
+    ...(article.related_titles || []),
+  ].join('\n');
 
   const prompt = `你是事实核查员。请对照【原文素材】审校【待审摘要】，只核查事实错误，不评判文风与详略。
 
@@ -106,16 +146,50 @@ ${mergedBlock}${relatedBlock}
       if (result.verdict === 'fail' && result.fixed?.summary) {
         console.log(`  [二审打回] ${article.title.slice(0, 40)}`);
         for (const issue of result.issues || []) console.log(`    - ${issue}`);
+        const fixedTakeaway = typeof result.fixed.takeaway === 'string' && result.fixed.takeaway.trim()
+          ? result.fixed.takeaway.trim().slice(0, 60) : article.takeaway;
+        const fixedPoints = Array.isArray(result.fixed.key_points)
+          ? normalizeKeyPoints(result.fixed.key_points)
+          : normalizeKeyPoints(safeParseArray(article.key_points));
+        // 二审的修正稿同样要过回指闸门：审稿模型改错了也会"修出"正文里没有的数字/主体，
+        // 修完不复检等于给幻觉开了一扇免检后门（2026-10-08 事故的教训就是没人回查正文）
+        const grounding = groundedAssertions({
+          keyPoints: fixedPoints,
+          takeaway: fixedTakeaway,
+          body: groundingCorpus,
+        });
+        if (!grounding.ok) {
+          console.warn(`  [QUARANTINE] 二审修正稿硬事实全部回指不上正文，隔离不入库: ${String(article.title || '').slice(0, 45)}`);
+          for (const d of grounding.dropped.slice(0, 4)) {
+            console.warn(`      · [${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`);
+          }
+          return markQuarantine(
+            {
+              ...article,
+              title: result.fixed.title || article.title,
+              summary: result.fixed.summary,
+              tags: result.fixed.tags ? JSON.stringify(normalizeTags(result.fixed.tags)) : article.tags,
+              takeaway: fixedTakeaway,
+              key_points: JSON.stringify(fixedPoints),
+            },
+            QUARANTINE_REASONS.UNGROUNDED_SUMMARY,
+            `二审修正稿: ${grounding.dropped.slice(0, 8).map(d => `[${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`).join(' ; ')}`,
+          );
+        }
+        if (grounding.dropped.length) {
+          console.warn(`  [GROUND] 二审修正稿丢弃回指不上正文的断言 ${grounding.dropped.length} 条: ${String(article.title || '').slice(0, 40)}`);
+          for (const d of grounding.dropped) {
+            console.warn(`      · [${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`);
+          }
+        }
         return {
           ...article,
           title: result.fixed.title || article.title,
           summary: result.fixed.summary,
           tags: result.fixed.tags ? JSON.stringify(normalizeTags(result.fixed.tags)) : article.tags,
-          // 结构化字段同步修正（审稿未返回则保留原值）
-          takeaway: typeof result.fixed.takeaway === 'string' && result.fixed.takeaway.trim()
-            ? result.fixed.takeaway.trim().slice(0, 60) : article.takeaway,
-          key_points: Array.isArray(result.fixed.key_points)
-            ? JSON.stringify(normalizeKeyPoints(result.fixed.key_points)) : article.key_points,
+          // 结构化字段同步修正（审稿未返回则保留原值），且已通过回指校验
+          takeaway: grounding.takeaway || fixedTakeaway,
+          key_points: JSON.stringify(grounding.key_points),
         };
       }
       // verdict异常或fail却没给修正稿：视为审稿无效，放行原稿

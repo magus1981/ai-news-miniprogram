@@ -299,6 +299,8 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
       console.warn('  [WARN] 全局精评失败，本轮回退用分批粗排分：批间尺度不一致且分数偏紧缩，精选可信度下降');
     }
     applyRoleCeiling(candidates);
+    // 标题党封顶（2026-10-08 事故）：情绪化标题不得凭高分进精选档，先压分再排序
+    applyClickbaitCeiling(candidates);
     candidates.sort((a, b) => b.ai_score - a.ai_score);
     
     // 候选分数全量打印：入选名单只是「候选取前20、再被查重砍掉几条」之后的幸存者，
@@ -713,6 +715,46 @@ export function applyRoleCeiling(list) {
 }
 
 /**
+ * 标题党词表（2026-10-08 假新闻事故 id 2228 后新增）。
+ * 这些词的存在本身就是"用情绪替事实"的信号，而 2228 正是靠"封杀"两个字
+ * 把一次改称呼的行政令（2026-09-29 联邦用语 AI→Super Intelligence）撑成了"全面禁AI"的假新闻。
+ * 词表按用户指定，宁滥勿缺：误伤的只是分数上限，不会删稿。
+ */
+export const CLICKBAIT_TITLE_RE = /(封杀|全面禁止|全面禁用|首次|碾压|史上最强|突发|重磅|紧急)/;
+/** 标题党分数上限：压在"重要"档(80)之下，天然进不了精选（FEATURED_MIN_SCORE=80）与高分档 */
+export const CLICKBAIT_SCORE_CEILING = 79;
+
+/**
+ * 标题党分数封顶（纯函数，供测试）：命中情绪词标题的稿件一律压到 79 分以下。
+ * 与 applyRoleCeiling 同一条路：只降不升，本来低于上限的不动，score_detail 记 flag 供复盘。
+ * @param {Array} list - 文章列表（原地修改）
+ * @returns {number} 被封顶的篇数
+ */
+export function applyClickbaitCeiling(list) {
+  if (!Array.isArray(list)) return 0;
+  let capped = 0;
+  for (const a of list) {
+    const title = String(a?.title || '') + String(a?.original_title || '');
+    const hit = title.match(CLICKBAIT_TITLE_RE);
+    if (!hit) continue;
+    try {
+      const d = a.score_detail ? JSON.parse(a.score_detail) : {};
+      a.score_detail = JSON.stringify({ ...d, clickbait_flag: hit[0], pre_cap_score: a.ai_score });
+    } catch { /* score_detail 不可解析时不阻断封顶 */ }
+    if (a.ai_score > CLICKBAIT_SCORE_CEILING) {
+      a.ai_score = CLICKBAIT_SCORE_CEILING;
+      try {
+        const d = a.score_detail ? JSON.parse(a.score_detail) : {};
+        a.score_detail = JSON.stringify({ ...d, score: a.ai_score });
+      } catch { /* 同上 */ }
+      capped++;
+    }
+  }
+  if (capped > 0) console.log(`  标题党封顶: ${capped} 条命中情绪词标题压到 ${CLICKBAIT_SCORE_CEILING} 分以内（不得进精选）`);
+  return capped;
+}
+
+/**
  * 同事件簇保留篇选择（纯函数，供测试）：主稿优先于衍生稿，同角色时看分数。
  * 单纯比分数会在衍生稿得分更高时把主新闻吐掉，只剩「某厂商适配了它」代表整个事件。
  * @returns {[object, object]} [保留篇, 被剔篇]
@@ -1120,7 +1162,10 @@ export function markFeatured(selected, dayContext = {}) {
     a.is_featured = a.newsness !== 'retro'
       && marked < featuredCap
       && a.ai_score >= FEATURED_MIN_SCORE
-      && (!isIncremental || a.ai_score >= 80);
+      && (!isIncremental || a.ai_score >= 80)
+      // 情绪化标题一律不进精选：封顶已把它压到 80 以下，这里是双保险
+      // （将来 FEATURED_MIN_SCORE 若下调，不至于把标题党直接推上"今日必读"）
+      && !CLICKBAIT_TITLE_RE.test(String(a.title || '') + String(a.original_title || ''));
     if (a.is_featured) marked++;
     // 突发标亮：增量轮里没进精选（预算已满）、但分数够"今日必读"水准
     // （>=85 且 >=当日精选最低分）、且刚发布不久的全新事件——不挤占已展示的精选，

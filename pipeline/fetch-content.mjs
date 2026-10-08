@@ -15,6 +15,8 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { readResponseText, decodeBody, mojibakeRatio } from './charset.mjs';
+import { relayAvailable, relayFetch } from './cn-relay.mjs';
+import { looksLikePageShell } from './material.mjs';
 
 // 入库前正文自检阈值：U+FFFD 占比超过 5% 判定为字符集解码失败（不可逆损坏），
 // 拒写该正文并按"抓取失败"处理（摘要退回 snippet），绝不把乱码带进素材/首页。
@@ -178,6 +180,54 @@ async function downloadImage(url, dir, index, referer) {
 }
 
 /**
+ * 通用（非适配器站点）HTML 取页：直连失败或只拿到页面壳时，经国内中继（cn-relay）重试一次。
+ * 为什么必须重试：aiera.com.cn（新智元）这类站点对 Actions 海外 runner 要么直连被拒、
+ * 要么返回 JS 异步渲染的页面壳（2026-10-08 假新闻事故 id 2228 只抓到 112 字），
+ * 而生产服务器/国内 IP 可通。中继不可用（本地开发无 CN_RELAY_* 变量）时保持原行为，
+ * 直接抛直连错误——绝不静默返回壳页当正文。
+ * 字符集：直连路径沿用 readResponseText 的正确解码；中继路径由服务端 Node fetch 已解码为
+ * 字符串，无法二次按字节解码，故其结果仍要过下方 mojibakeRatio 自检兜底。
+ * @returns {Promise<string>} 已解码的页面 HTML；两条路都失败则抛错
+ */
+async function genericFetchHtml(url) {
+  let directErr = null;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': UA,
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const ctype = resp.headers.get('content-type') || '';
+    if (ctype && !/html|xml|text/i.test(ctype)) throw new Error(`非HTML内容: ${ctype}`);
+    const pageHtml = await readResponseText(resp); // 按正确字符集解码（日文政务源多为 Shift-JIS/EUC-JP）
+    // 只有拿到"能看出是壳"的页面才值得换条路重试；有正文就直接用，不多打一次中继
+    if (!looksLikePageShell(pickContent(pageHtml).text)) return pageHtml;
+    directErr = new Error('直连仅返回页面壳');
+  } catch (err) {
+    directErr = err;
+  }
+
+  if (!relayAvailable()) throw directErr;
+  console.log(`  [RELAY] 直连未取得正文(${directErr.message})，经国内中继重试一次: ${url.slice(0, 80)}`);
+  const relayed = await relayFetch(url, {
+    method: 'GET',
+    headers: {
+      'User-Agent': UA,
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    },
+    timeoutMs: FETCH_TIMEOUT_MS + 10000,
+  });
+  if (!relayed.ok) throw new Error(`中继 HTTP ${relayed.status}`);
+  return await relayed.text();
+}
+
+/**
  * 资料库存档：抓取正文文本+HTML快照，下载图片并重写引用为本地路径
  * @param {string} url 文章URL
  * @returns {Promise<{text: string, html: string, image_count: number, image_fail: number, image_skip: number}|null>}
@@ -194,19 +244,7 @@ export async function archiveArticle(url) {
     text = r.text;
     html = r.html;
   } else {
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const ctype = resp.headers.get('content-type') || '';
-    if (ctype && !/html|xml|text/i.test(ctype)) throw new Error(`非HTML内容: ${ctype}`);
-    const pageHtml = await readResponseText(resp); // 按正确字符集解码（日文政务源多为 Shift-JIS/EUC-JP）
+    const pageHtml = await genericFetchHtml(url);
     const picked = pickContent(pageHtml);
     text = picked.text;
     html = picked.html;
@@ -388,7 +426,16 @@ export async function fetchFullContents(articles) {
       const a = queue.shift();
       try {
         const arch = await archiveArticle(a.source_url);
-        if (arch) {
+        // 抓回来的是页面壳（JS 渲染站/拦截页）时不写 content：壳页有字数但没有一句正文，
+        // 存进去会被下游"正文≥200字即算有全文"的长度判据当成有素材，正是 2228 的入口。
+        // 这里归零后由素材闸门（material.mjs）判缺正文转隔离队列待重跑，绝不静默入库。
+        if (arch && looksLikePageShell(arch.text)) {
+          a.content = '';
+          a.content_html = '';
+          a.__shell = true;
+          fail++;
+          console.warn(`  [SHELL] 只抓到页面壳(${arch.text.length}字)，按缺正文处理: ${a.title.slice(0, 40)}`);
+        } else if (arch) {
           a.content = arch.text;
           a.content_html = arch.html;
           a.image_count = arch.image_count;

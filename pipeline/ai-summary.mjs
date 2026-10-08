@@ -4,9 +4,12 @@
  */
 import { CATEGORY_RULES, VALID_CATEGORIES, applyTagInvariants } from './classify-rules.mjs';
 import { canonicalizeName } from './tag-canonical.mjs';
+import { pickMaterial, groundedAssertions, markQuarantine, QUARANTINE_REASONS, MIN_MATERIAL_CHARS } from './material.mjs';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+// 默认生产端点；DASHSCOPE_API_URL 仅供回归测试用本地桩服务替身（零成本验证闸门全链路），
+// 线上不设该变量，行为与改动前完全一致
+const API_URL = process.env.DASHSCOPE_API_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 // 摘要/翻译/分类环节使用旗舰模型 qwen-max（每天仅处理20篇，量小但最考验理解与防幻觉）；
 // 可用环境变量 SUMMARY_MODEL 覆盖
 const SUMMARY_MODEL = process.env.SUMMARY_MODEL || 'qwen-max';
@@ -102,9 +105,22 @@ const TAGS_SPEC = `"tags": {"companies": ["公司名"], "people": ["人物名"],
  * @returns {Object} - 带中文标题、总结和tags(JSON字符串)的文章
  */
 export async function generateSummary(article) {
-  // 素材优先级：抓取的全文 > RSS片段 > 标题（全文可大幅减少"看标题脑补"型幻觉）
-  const hasFullText = (article.content || '').length >= 200;
-  const content = hasFullText ? article.content : (article.content_snippet || article.title);
+  // 素材闸门（2026-10-08 假新闻事故 id 2228 后重写）：
+  // 旧写法 `content = hasFullText ? content : (content_snippet || title)` 把标题当正文喂给模型，
+  // 于是"特朗普签行政令：美国政府全面封杀AI"这条 112 字壳页稿，模型只看得到"封杀AI"四个字，
+  // 凭它编出一条不存在的禁令并拿到 92 分进精选。标题是被加工的对象，不是加工的原料。
+  // 现在：全文 → 真实摘要片段 → 没有就隔离（不调模型、不写 articles），宁可不显示也不编一条。
+  const mat = pickMaterial(article);
+  if (!mat) {
+    console.warn(`  [QUARANTINE] 无可用素材（正文缺失或为壳页），隔离不入库: ${String(article.title || '').slice(0, 45)}`);
+    return markQuarantine(
+      { ...article, summary: '', takeaway: '', key_points: '[]', quote: '', tags: article.tags || '[]' },
+      QUARANTINE_REASONS.MISSING_BODY,
+      `content=${(article.content || '').length}字, content_snippet=${(article.content_snippet || '').length}字（低于${MIN_MATERIAL_CHARS}字下限、或与标题等同、或为壳页）`,
+    );
+  }
+  const content = mat.material;
+  const hasFullText = mat.hasFullText;
   const contentLimit = hasFullText ? 6000 : 2000;
   const isEnglish = article.language === 'en';
 
@@ -139,6 +155,16 @@ export async function generateSummary(article) {
   const relatedBlock = otherTitles.length
     ? `\n同一事件的其他媒体报道标题（仅用于校对公司归属等关键事实，不要总结它们的内容）：\n${otherTitles.map(t => `- ${t}`).join('\n')}\n`
     : '';
+
+  // 回指校验的比对范围 = 提示词里向模型声明为"有效证据"的全部内容，一处口径。
+  // 只拿本篇正文比对会误杀：mergedBlock 明确要求把同来源连发稿的硬事实写进 key_points，
+  // 那些事实天然不在本篇正文里。证据集合与提示词承诺的集合必须严格相同，否则
+  // "整合要求"和"回指闸门"就是两道互相矛盾的制度（二审 prompt 已有同样的合并素材块）。
+  const groundingCorpus = [
+    content,
+    ...mergedSnippets.map(s => `${s.title || ''} ${s.snippet || ''}`),
+    ...otherTitles,
+  ].join('\n');
 
   const prompt = `请为以下AI资讯生成结构化中文精华总结、判定分类并提取标签。
 
@@ -193,6 +219,45 @@ ${hasFullText ? '原文全文' : '内容片段（非全文，事实不足时宁�
       } else {
         console.warn(`  分类判定异常(${result.category})，保留信源默认分类: ${article.title.slice(0, 40)}`);
       }
+
+      // 事实断言回指校验（verifyQuote 的推广，见 material.mjs）：
+      // key_points / takeaway 里的硬事实（数字、英文专有名词、引号内实体）必须能在素材正文里
+      // 逐字找到，找不到的整条丢弃；全丢说明模型写的内容和正文根本对不上 → 隔离。
+      // 关键：这一步与 hasFullText 无关。旧代码只在 hasFullText=true 时校验 quote，
+      // 摘要正文里的编造内容一个字都没查过——2228 编的恰恰全在这些字段里。
+      const normalizedPoints = normalizeKeyPoints(result.key_points);
+      const normalizedTakeaway = typeof result.takeaway === 'string' ? result.takeaway.trim().slice(0, 60) : '';
+      const grounding = groundedAssertions({
+        keyPoints: normalizedPoints,
+        takeaway: normalizedTakeaway,
+        body: groundingCorpus,
+      });
+      if (!grounding.ok) {
+        console.warn(`  [QUARANTINE] 摘要硬事实无一处可回指正文，隔离不入库: ${String(article.title || '').slice(0, 45)}`);
+        for (const d of grounding.dropped.slice(0, 4)) {
+          console.warn(`      · [${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`);
+        }
+        return markQuarantine(
+          {
+            ...article,
+            summary: result.summary || '',
+            takeaway: normalizedTakeaway,
+            key_points: JSON.stringify(normalizedPoints),
+            quote: '',
+            category,
+            tags: JSON.stringify(applyTagInvariants(category, tags)),
+          },
+          QUARANTINE_REASONS.UNGROUNDED_SUMMARY,
+          grounding.dropped.slice(0, 8).map(d => `[${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`).join(' ; '),
+        );
+      }
+      if (grounding.dropped.length) {
+        console.warn(`  [GROUND] 丢弃回指不上正文的断言 ${grounding.dropped.length} 条: ${String(article.title || '').slice(0, 40)}`);
+        for (const d of grounding.dropped) {
+          console.warn(`      · [${d.field}] ${d.value} ← 正文查无 ${d.missing.join(' / ')}`);
+        }
+      }
+
       return {
         ...article,
         original_title: isEnglish ? article.title : null,
@@ -200,9 +265,9 @@ ${hasFullText ? '原文全文' : '内容片段（非全文，事实不足时宁�
         summary: result.summary || content.slice(0, 500),
         category,
         tags: JSON.stringify(applyTagInvariants(category, tags)),
-        // 结构化字段：一句话要点/核心要点/原文金句（金句程序校验，比对不上即丢弃）
-        takeaway: typeof result.takeaway === 'string' ? result.takeaway.trim().slice(0, 60) : '',
-        key_points: JSON.stringify(normalizeKeyPoints(result.key_points)),
+        // 结构化字段：一句话要点/核心要点（均已通过与正文的硬事实回指校验）/原文金句（逐字比对）
+        takeaway: grounding.takeaway,
+        key_points: JSON.stringify(grounding.key_points),
         quote: verifyQuote(result.quote || '', hasFullText ? article.content : ''),
       };
 
