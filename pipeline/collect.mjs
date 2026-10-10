@@ -92,7 +92,7 @@ const SCRAPERS = {
  * 判断是否为官方博客类信源（低频发布，无日期条目放行）
  */
 function isOfficialSource(source) {
-  return source.official === true || source.source_type === 'official';
+  return source?.official === true || source?.source_type === 'official';
 }
 
 /**
@@ -120,14 +120,34 @@ export function normalizePublishedAt(raw, sourceName, title, sourceUrl) {
 }
 
 /**
+ * 按源时效窗（2026-10-10 政务源静默误报排查后新增）
+ * 返回两个窗口，**故意不等价**：
+ * - directMs：列表页直接给出的发布日期（爬虫 span / RSS pubDate）适用的窗口，
+ *   可按源放宽（sources.mjs 的 windowDays），治的是低频政务源"漏一轮=永久丢"；
+ * - rescuedMs：从 URL/正文里救援出来的日期所适用的窗口，**一律维持原口径**
+ *   （官方 7 天 / 非官方 36h）。96890a1 修的就是这条支路——政务站 URL 里写着
+ *   t20211227，救援出来的历史日期一旦放宽就会重新成批进池、分薄精评名额、
+ *   把 2021—2025 的老文件推上今日首页。这条不许随 windowDays 一起放大。
+ * windowDays 非法/缺省 → 两窗相同，行为与改动前逐字一致。
+ */
+export function sourceWindows(source) {
+  const baseMs = (isOfficialSource(source) ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 3600 * 1000;
+  const wd = Number(source?.windowDays);
+  const directMs = Number.isFinite(wd) && wd > 0 ? Math.max(baseMs, wd * 24 * 3600 * 1000) : baseMs;
+  return { directMs, rescuedMs: baseMs };
+}
+
+/**
  * 时效性过滤（作用于已含 published_at 字段的文章数组）
  * - 无日期/日期解析失败：官方源放行，其他源丢弃
  * - 未来日期（超过当前时间+1天）：一律剔除
- * - 超出窗口丢弃：官方源7天，其他源72小时
+ * - 超出窗口丢弃：列表页直采日期走 sourceWindows().directMs（可按源放宽，默认官方7天/其他36h），
+ *   URL/正文救援出来的日期走 rescuedMs（原口径，不随 windowDays 放宽）
  */
 export function filterByFreshness(articles, source) {  const now = Date.now();
-  const official = isOfficialSource(source);
-  const cutoff = now - (official ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 60 * 60 * 1000;
+  const { directMs, rescuedMs } = sourceWindows(source);
+  const cutoff = now - directMs;
+  const rescuedCutoff = now - rescuedMs;
 
   return articles.filter(a => {
     // date_unknown：走"未知日期"专用通道，直接放行给下游归入 date_key='unknown'，
@@ -147,9 +167,10 @@ export function filterByFreshness(articles, source) {  const now = Date.now();
         // 未满日保底 3 个精评名额、总预算只有 30 —— 名额被历史日桶分光，当日 97 条候选只抢到 3 席，
         // 当天页面于是几乎为空。这与 2026-08-27 把窗口从 72h 收紧到 36h 的意图（治陈旧稿占配额）
         // 是同一个洞的另一条支路，此处按同一口径补齐：超窗一律不进池。
+        // 2026-10-10：这条窗口用的是 rescuedMs（原口径），不随按源 windowDays 放大。
         a.published_at = rescued;
         const rts = new Date(rescued).getTime();
-        if (Number.isFinite(rts)) return rts >= cutoff && rts <= now + MAX_FUTURE_MS;
+        if (Number.isFinite(rts)) return rts >= rescuedCutoff && rts <= now + MAX_FUTURE_MS;
         return true;
       }
       a._date_unknown = true;
@@ -179,7 +200,9 @@ async function fetchSource(source, attempt = 1) {
     const rawCount = (feed.items || []).length;
     const now = Date.now();
     const official = isOfficialSource(source);
-    const cutoff = now - (official ? OFFICIAL_WINDOW_DAYS * 24 : HOURS_WINDOW) * 60 * 60 * 1000;
+    // RSS pubDate 属于"列表页直采日期"，与爬虫 span 同级，同样享受按源 windowDays
+    // （URL/正文救援那条支路在下面 normalizePublishedAt 之后不再复查窗口，维持原行为）
+    const cutoff = now - sourceWindows(source).directMs;
 
     const articles = (feed.items || [])
       .filter(item => {

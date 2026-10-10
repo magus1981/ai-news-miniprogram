@@ -313,6 +313,11 @@ export const SOURCES = [
     source_type: 'official',
     official: true,
     alertDays: 7,
+    // 2026-10-10 按源时效窗：首页只挂"新闻动态3条+通知公告3条"，实测最后一批是
+    // 09-15~09-22，7天窗从 09-28 起把 6 条全拦（raw=6/fetched=0，报警器误判成源哑）。
+    // 该委是月更级，30 天才能让"漏一次=永久丢"不再成立。只放宽列表页直采日期，
+    // URL 救援出的历史日期仍按 7 天（见 collect.mjs sourceWindows）。
+    windowDays: 30,
   },
   {
     name: '国家数据局',
@@ -417,6 +422,11 @@ export const SOURCES = [
     source_type: 'official',
     official: true,
     alertDays: 7,
+    // 2026-10-10 按源时效窗：四栏目各 25 条=raw 225，实测最新一条是 09-21（tz 栏目），
+    // 7天窗下 fetched 恒为 0；该委政策文件是周更~月更级、且栏目间隔极不均匀，
+    // 30 天窗才不至于"漏一轮就永久丢"。只放宽列表页 span 直采日期，
+    // URL 救援出的历史日期（实测散布 2021-07~2026-09）仍按 7 天拦死。
+    windowDays: 30,
   },
   {
     name: '北京市政府',

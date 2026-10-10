@@ -1295,10 +1295,28 @@ ${candList}
     if (!pairs.length) return candidates;
     // 硬收口：只有指认出有效 A 配对的候选才允许被剔除（无 a / 越界的判重一律不采纳）
     const pubN = Math.min(publishedTitles.length, 120);
-    const drop = new Map(pairs
-      .filter(p => Number.isInteger(p.b) && p.b >= 1 && p.b <= candidates.length
-        && Number.isInteger(p.a) && p.a >= 1 && p.a <= pubN)
-      .map(p => [p.b - 1, p.a]));
+    const inRange = p => Number.isInteger(p.b) && p.b >= 1 && p.b <= candidates.length
+      && Number.isInteger(p.a) && p.a <= pubN;
+    // 第二道闸（2026-10-10）：指认到了具体某一条，不代表指认得合理。
+    // 48b7feb 把"聚合判重"逼回"一对一指认"后，成批发布那条由三轮全杀变三轮全保留，
+    // 但防线全在提示词里——模型自觉，温度 0.1 也会飘。此处给代码层装上否决权：
+    // 主体对不上、或候选是成批可数产出而所指认的A只是单项/旧闻评论，该 pair 作废、候选保留。
+    const drop = new Map();
+    const vetoed = [];
+    for (const p of pairs.filter(inRange)) {
+      const aTitle = String(publishedTitles[p.a - 1] || '');
+      const bTitle = String(candidates[p.b - 1]?.title || '');
+      const gate = isPlausibleCrossDupPair(bTitle, aTitle);
+      if (gate.ok) {
+        if (!drop.has(p.b - 1)) drop.set(p.b - 1, p.a);
+      } else if (!drop.has(p.b - 1)) {
+        vetoed.push({ ...p, aTitle, bTitle, reason: gate.reason });
+      }
+    }
+    // 否决必须与剔除同等可见：只报"留了几条"事后无法判断是模型放了手还是闸替它兜了底
+    for (const v of vetoed) {
+      console.log(`  [CROSS-VETO] B${v.b}《${v.bTitle.slice(0, 40)}》↔A${v.a}《${v.aTitle.slice(0, 40)}》指认不合理（${v.reason}），保留候选`);
+    }
     if (!drop.size) return candidates;
     console.log(`跨期查重: 剔除与近期已发布同一次发布的旧闻重报 ${drop.size} 条`);
     // 被杀必须可见（与漏报对账同哲学）：只记总数无法事后定位误杀
@@ -1315,6 +1333,120 @@ ${candList}
     console.warn('跨轮查重失败，跳过（不影响主流程）:', err.message);
     return candidates;
   }
+}
+
+/**
+ * 跨期查重指认合理性闸：主体花名册（canonical ← 别名）。
+ * 只用于"两侧都认得出主体且互不相干"这一种硬反证，认不出即不判（见 isPlausibleCrossDupPair）。
+ * 词表刻意保守：漏一个主体只是少一次否决（回到提示词防线），多一个误并入会放走真旧闻。
+ */
+const DUP_SUBJECT_GROUPS = [
+  ['OpenAI', ['openai', 'chatgpt', 'gpt-?\\d', 'sora', 'o\\d-mini']],
+  ['Anthropic', ['anthropic', 'claude']],
+  ['Google', ['google', 'deepmind', 'gemini', 'gemma', 'imagen', 'tpu']],
+  ['Meta', ['\\bmeta\\b', 'facebook', 'llama', 'whatsapp']],
+  ['Microsoft', ['microsoft', 'azure', 'copilot']],
+  ['Amazon', ['amazon', '\\baws\\b', 'alexa']],
+  ['Apple', ['\\bapple\\b', 'siri']],
+  ['NVIDIA', ['nvidia', 'jensen huang', '黄仁勋']],
+  ['Mistral', ['mistral', 'le chonk']],
+  ['DeepSeek', ['deepseek', '深度求索']],
+  ['xAI', ['\\bxai\\b', 'grok', 'musk']],
+  ['阿里', ['阿里', 'alibaba', '通义', 'qwen', '夸达']],
+  ['腾讯', ['腾讯', '混元', 'hunyuan']],
+  ['字节', ['字节', 'bytedance', '豆包', 'doubao', 'tiktok']],
+  ['百度', ['百度', '文心', 'ernie']],
+  ['华为', ['华为', 'huawei', '盘古', 'pangu']],
+  ['智谱', ['智谱', 'zhipu', '\\bglm\\b']],
+  ['月之暗面', ['月之暗面', 'moonshot', 'kimi']],
+  ['MiniMax', ['minimax', '海螺']],
+  ['科大讯飞', ['讯飞', 'spark', 'iflytek']],
+  ['商汤', ['商汤', 'sensetime']],
+  ['百川', ['百川', 'baichuan']],
+  ['阶跃星辰', ['阶跃', 'stepfun']],
+  ['HuggingFace', ['hugging\\s?face']],
+  ['Midjourney', ['midjourney']],
+  ['Sony', ['\\bsony\\b']],
+  ['Samsung', ['samsung', '三星']],
+  ['Intel', ['\\bintel\\b']],
+  ['AMD', ['\\bamd\\b']],
+  ['台积电', ['台积电', 'tsmc']],
+  ['软银', ['软银', 'softbank']],
+  ['Ssi', ['\\bssi\\b', '扎伯格', 'zuckerberg', 'biohub']],
+  ['特斯拉', ['特斯拉', 'tesla', 'optimus']],
+  ['Figure', ['figure\\s?ai']],
+  ['Runway', ['runway']],
+  ['ElevenLabs', ['elevenlabs', 'eleven labs']],
+];
+
+const DUP_SUBJECT_RX = DUP_SUBJECT_GROUPS.map(([canon, aliases]) => [canon, new RegExp(aliases.join('|'), 'i')]);
+
+/** 认标题里的主体（返回 canonical 集合）。中英混排都认，认不出返回空数组=弃权。 */
+export function extractDupSubjects(title) {
+  const t = String(title || '');
+  const out = [];
+  for (const [canon, rx] of DUP_SUBJECT_RX) if (rx.test(t)) out.push(canon);
+  return out;
+}
+
+/**
+ * 是否报道"一次性放出成批可数产出"（论文/手稿/数据集/模型/基准…带数量级或成批字样）。
+ * 这是 例外C 的代码化：候选是新一批产出而所指认的A不是，就不是同一次发布动作。
+ */
+export function batchReleaseSignal(title) {
+  const t = String(title || '');
+  const UNITS = '篇|个|项|批|条|款|组|道';
+  const NOUNS = '数学|手稿|论文|成果|研究|突破|证明|反例|结果族|数据集|基准|模型|客户|cases?|papers?|proofs?|models?|datasets?|benchmarks?|results?|breakthroughs?|releases?';
+  if (new RegExp(`\\d[\\d,\\.]*\\s*(?:${UNITS})\\s*(?:${NOUNS})`, 'i').test(t)) return true;
+  if (new RegExp(`(?:${NOUNS})[^\\n]{0,12}?\\d[\\d,\\.]*\\s*(?:${UNITS})`, 'i').test(t)) return true; // "372 results" 倒装
+  if (/\d{2,}[\d,.]*\s+(?:papers?|proofs?|datasets?|benchmarks?|models?|breakthroughs?|results?)/i.test(t)) return true;
+  // 数字与产出名词之间夹了修饰语（"372 AI-generated math proofs"）
+  if (/\b\d{2,}\b[^.]{0,30}\b(?:papers?|proofs?|datasets?|benchmarks?|breakthroughs?|results?|releases?)\b/i.test(t)) return true;
+  if (/(一次性|成批|一口气|打包|合集|大全)[^，,]{0,8}?(放出|发布|公开|开源|释出|放出)/.test(t)) return true;
+  if (/\b(batch|batches|dumps?|drops?)\b[^.]{0,20}\b(of|with)\b/i.test(t)) return true;
+  return false;
+}
+
+/** 归一化标题（去标点/空白/大小写，中英文标点一并抹平），供相似度与比对用。 */
+function normDupTitle(t) {
+  return String(t || '').toLowerCase()
+    .replace(/[，。、：:；;！!？?“”"'（）()\[\]{}|/\\-–—_~`+*#@$.%^\s]+/g, ' ')
+    .trim();
+}
+
+/**
+ * 判定"模型把 B 候选指认成与 A 某条同一次发布"这件事合不合理（纯函数，供测试）。
+ * 只在拿到**硬反证**时否决，一律 default 放行（ok=true），因为否决=留下候选=可能放过旧闻重报，
+ * 而放行=维持模型的剔除决定=可能错杀新事件——本层的立场与 48b7feb 一致：宁可漏判重，不可错杀新事件。
+ * 反证两条：
+ *   一 主体不符：两侧都认得出主体且交集为空（认不出=弃权，不做字面猜测）。
+ *   二 量级不符：候选报道成批可数产出，而所指认的A稿没有任何成批标记（单项宣布/后续评论/另一批）。
+ * 同稿快速通道：归一化后标题高度重合（同一次发布的中英文/改写稿）时直接放行，
+ * 避免"B《GPT-6…（含12项能力）》↔A《GPT-6…》"这类同篇被量级规则误放回来。
+ * @returns {{ok:boolean, reason:string}}
+ */
+export function isPlausibleCrossDupPair(bTitle, aTitle) {
+  const b = String(bTitle || '').trim();
+  const a = String(aTitle || '').trim();
+  if (!b || !a) return { ok: true, reason: '标题缺失，弃权放行' };
+
+  const nb = normDupTitle(b), na = normDupTitle(a);
+  const tokens = s => new Set(s.split(' ').filter(w => w.length > 1));
+  const tb = tokens(nb), ta = tokens(na);
+  const shared = [...tb].filter(w => ta.has(w)).length;
+  const jac = (tb.size + ta.size) ? shared / (tb.size + ta.size - shared) : 0;
+  if (jac >= 0.6 || nb === na || nb.includes(na) || na.includes(nb)) return { ok: true, reason: '同稿（标题高度重合），指认成立' };
+
+  const sb = extractDupSubjects(b), sa = extractDupSubjects(a);
+  if (sb.length && sa.length && !sb.some(x => sa.includes(x))) {
+    return { ok: false, reason: `主体不符：候选=${sb.join('/')} vs 所指认A=${sa.join('/')}` };
+  }
+
+  if (batchReleaseSignal(b) && !batchReleaseSignal(a)) {
+    return { ok: false, reason: '量级不符：候选报道成批可数产出，所指认A稿无成批标记（单项宣布/后续评论）' };
+  }
+
+  return { ok: true, reason: '无硬反证，采纳指认' };
 }
 
 /**

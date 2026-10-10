@@ -14,12 +14,13 @@ import {
   applyTierRanks, applyRoleCeiling, pickKept, markFeatured, mergeNearDupTitles, scoreBandLabel,
   selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND, BACKFILL_MAX,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
+  isPlausibleCrossDupPair, extractDupSubjects, batchReleaseSignal,
 } from '../ai-filter.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
 import { isRoundupCandidate, buildSubEvents, parseSplitResponse } from '../roundup-split.mjs';
 import { pickMissedCandidates, parseAuditResponse } from '../miss-audit.mjs';
 // 2026-10-01 新增：时效窗口与精评名额的回归用例需要直接调用这两个纯函数
-import { filterByFreshness } from '../collect.mjs';
+import { filterByFreshness, sourceWindows } from '../collect.mjs';
 import { REFINE_GUARANTEE_DAYS } from '../ai-filter.mjs';
 
 const CASES = [];
@@ -732,6 +733,43 @@ T('时效: URL 也提不到日期时仍走 date_unknown 放行（不得被新逻
   return kept.length === 1 && kept[0]._date_unknown === true && kept[0].published_at === '';
 });
 
+// ── 按源时效窗 windowDays（2026-10-10 政务源"静默"误报排查后新增）──
+// 硬约束：只放宽列表页直采日期（爬虫 span / RSS pubDate），URL/正文救援出来的历史日期
+// 一律仍按原口径（官方7天/非官方36h）——96890a1 修的就是救援支路，不能随放宽回退。
+const GOV_WD = { official: true, name: '国家发改委', windowDays: 30 };
+const DAY = 86400000;
+T('按源窗口: 直采的20天前政务稿在 windowDays=30 下进池（低频源不再被7天窗饿死，正例）', () => {
+  const iso = new Date(Date.now() - 20 * DAY).toISOString();
+  return filterByFreshness([{ published_at: iso, source_url: 'https://www.ndrc.gov.cn/x.html', title: '通知' }], GOV_WD).length === 1;
+});
+T('按源窗口: 同一条20天前的稿在未配 windowDays 的源上仍被7天窗拦下（对照，放宽不得泄漏）', () => {
+  const iso = new Date(Date.now() - 20 * DAY).toISOString();
+  return filterByFreshness([{ published_at: iso, source_url: 'https://www.ndrc.gov.cn/x.html', title: '通知' }], GOV).length === 0;
+});
+T('按源窗口: 硬约束——windowDays=30 也不得放宽 URL 救援出来的历史日期（事故反例复现）', () => {
+  const kept = filterByFreshness(
+    [{ published_at: '', source_url: mkGovUrl(ymdOf(20 * DAY)), title: '2021年老文件类救援' }], GOV_WD);
+  return kept.length === 0;
+});
+T('按源窗口: 救援日期在7天内照常进池（放宽/不放宽的分界正好落在救援这条支路）', () => {
+  return filterByFreshness(
+    [{ published_at: '', source_url: mkGovUrl(ymdOf(3 * DAY)), title: '近三日救援' }], GOV_WD).length === 1;
+});
+T('sourceWindows: 缺省=官方7天/非官方36h，两窗相等（改动前行为逐字保持）', () => {
+  const g = sourceWindows(GOV), n = sourceWindows(NON_GOV);
+  return g.directMs === 7 * DAY && g.rescuedMs === 7 * DAY && n.directMs === 36 * 3600e3 && n.rescuedMs === 36 * 3600e3;
+});
+T('sourceWindows: 配了 windowDays 时只有 directMs 变宽，rescuedMs 恒等于原口径（不变量）', () => {
+  const w = sourceWindows(GOV_WD);
+  return w.directMs === 30 * DAY && w.rescuedMs === 7 * DAY;
+});
+T('sourceWindows: windowDays 非法/小于基线时退回基线（不得把窗口算成0或负数）', () => {
+  return sourceWindows({ official: true, name: 'x', windowDays: 'abc' }).directMs === 7 * DAY
+    && sourceWindows({ name: 'y', windowDays: -5 }).directMs === 36 * 3600e3
+    && sourceWindows({ name: 'y', windowDays: 2 }).directMs === 48 * 3600e3   // max(36h, 2d)
+    && sourceWindows(undefined).directMs === 36 * 3600e3;
+});
+
 // ── 精评保底只在近 N 日内分配（2026-10-01 同批修复；N=REFINE_GUARANTEE_DAYS）──
 const REF_TODAY = '2026-10-01';
 const bjDayIso = (off) => new Date(Date.UTC(2026, 9, 1 - off, 2, 0)).toISOString(); // 北京当日 10:00
@@ -803,6 +841,64 @@ T('查重配对: a为null或非数字同样不采纳', () => {
 });
 T('查重配对: 垃圾输入返回空数组（不得抛异常把整层查重带崩）', () => {
   return parseDupPairs('not json at all').length === 0 && parseDupPairs('{}').length === 0;
+});
+
+// ── 跨期查重「指认合理性」代码层否决闸（2026-10-10，接续 48b7feb）──
+// 事故复现组（反例，防错杀当日头条级新事件）
+const ACC_B = '突发！OpenAI一次性放出722篇数学手稿，准黎曼猜想、4D挂谷都在列';
+T('指认闸: 722篇成批 vs 千禧年单项宣布 → 否决该pair保留候选（10-07事故复现）', () => {
+  const r = isPlausibleCrossDupPair(ACC_B, 'OpenAI宣布解决一个千禧年大奖难题');
+  return r.ok === false && /量级不符/.test(r.reason);
+});
+T('指认闸: 722篇成批 vs 数学反例旧闻跟进稿 → 否决（A认不出主体也不能放行量级反证）', () => {
+  return isPlausibleCrossDupPair(ACC_B, 'AI找出数学反例推翻论文，作者确认').ok === false;
+});
+T('指认闸: 主体不符（Anthropic发模型 vs OpenAI发模型）→ 否决', () => {
+  const r = isPlausibleCrossDupPair('Anthropic发布Claude 4.5模型', 'OpenAI发布GPT-5');
+  return r.ok === false && /主体不符/.test(r.reason);
+});
+T('指认闸: 中英 alike 的量级不符（放出12个数据集 vs 开源一个新数据集）→ 否决', () => {
+  return isPlausibleCrossDupPair('OpenAI一口气放出12个数据集', 'OpenAI开源一个新数据集').ok === false;
+});
+// 回归组（正例，防把该判重的旧闻重报放回来）
+T('指认闸: 同一批的两种计数口径（722篇含372结果族 vs batch of breakthroughs）→ 采纳', () => {
+  return isPlausibleCrossDupPair('722篇！OpenAI一次发布大量数学成果（含372个结果族）',
+    'OpenAI drops another batch of mathematical breakthroughs').ok === true;
+});
+T('指认闸: 数字与名词间隔行（dumps 372 AI-generated math proofs vs batch of breakthroughs）→ 采纳', () => {
+  return batchReleaseSignal('OpenAI dumps 372 AI-generated math proofs on GitHub')
+    && isPlausibleCrossDupPair('OpenAI dumps 372 AI-generated math proofs on GitHub',
+      'OpenAI drops another batch of mathematical breakthroughs').ok === true;
+});
+T('指认闸: EmbeddingGemma 2 中英文同源稿 → 采纳（原有能力不回归）', () => {
+  return isPlausibleCrossDupPair(
+    'Google claims EmbeddingGemma 2 outperforms rival embeddings in retrieval benchmarks',
+    'EmbeddingGemma 2：开放、轻量级的多模态嵌入模型').ok === true;
+});
+T('指认闸: 同题中英文改写稿 → 采纳（同稿快速通道，不被量级/主体规则掀翻）', () => {
+  const t = 'GPT-6 and Intelligent UI for everyone';
+  return isPlausibleCrossDupPair(t, t).ok === true
+    && isPlausibleCrossDupPair('North America’s Startup Funding Falls In Q3 As AI Giants Eye The Public',
+      'North America’s Startup Funding Falls In Q3 As AI Giants Eye The Public').ok === true;
+});
+T('指认闸: 两侧都认不出主体 → 弃权采纳（不做字面猜测）', () => {
+  return isPlausibleCrossDupPair('一家初创公司发布新模型', '该公司模型被曝存在重大缺陷').ok === true;
+});
+T('指认闸: 标题缺失/空串 → 采纳且绝不抛异常', () => {
+  return isPlausibleCrossDupPair('', '某稿').ok === true
+    && isPlausibleCrossDupPair('某稿', undefined).ok === true;
+});
+T('指认闸: 认不出主体时不用主体规则否决（只留量级一条）', () => {
+  return extractDupSubjects('一家初创公司发布新模型').length === 0
+    && extractDupSubjects('腾讯混元开源新模型').includes('腾讯')
+    && extractDupSubjects('智谱GLM发布推理模型').includes('智谱');
+});
+T('成批信号: 正例命中/反例不命中（千禧年单项、金额、季标都不算）', () => {
+  return batchReleaseSignal('突发！OpenAI一次性放出722篇数学手稿')
+    && batchReleaseSignal('OpenAI 发布 12 个结果族')
+    && !batchReleaseSignal('OpenAI宣布解决一个千禧年大奖难题')
+    && !batchReleaseSignal('AI computing startup Lambda to raise $4B ahead of planned IPO')
+    && !batchReleaseSignal('North America’s Startup Funding Falls In Q3');
 });
 
 // ── 执行 ──
