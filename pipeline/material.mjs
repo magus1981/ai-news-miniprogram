@@ -21,6 +21,14 @@
 // 素材长度下限：与既有 hasFullText 口径一致（ai-summary/ai-review 原本就用 200 字判"有无全文"）
 export const MIN_MATERIAL_CHARS = 200;
 
+// RSS 摘要片段"独立成篇"下限（2026-10-12 误杀校准）：爬虫的 `content_snippet: title`
+// 占位约定只会产出标题本身或极短片段；而正规 RSS 的 description 常见形态是
+// "标题原样开头 + 正文前几段"，长度数百字。2026-10-11/12 实证误杀两条头条级稿件
+// （89 分《AI「读心」》418 字、75 分《Claude 封号潮》464 字），全部死在
+// snippet.includes(title) 这条"标题占位"判据上。达到该下限的片段不再因含标题判占位，
+// 但 ===标题、壳页识别、200 字下限三道闸照旧。
+export const SNIPPET_TRUST_MIN_CHARS = 300;
+
 // 隔离原因码（写进 _proc_reason 前缀，最终落 articles_quarantine.reason，供人工回捞与日报统计）
 export const QUARANTINE_REASONS = {
   MISSING_BODY: 'missing_body',      // 无可用素材：抓不到正文，且片段也只是标题占位/壳页
@@ -124,9 +132,14 @@ export function pickMaterial(article) {
   const snippet = String(article.content_snippet || '').trim();
   const title = String(article.title || '').trim();
   // 爬虫列表卡片惯用 `content_snippet: title` 占位（新智元/各政务站），
-  // 这类片段与标题等价，用等于/包含标题即视为无料，堵掉"标题换个字段名再进来"
+  // 这类片段与标题等价，用等于/包含标题即视为无料，堵掉"标题换个字段名再进来"。
+  // 2026-10-12 校准：达到 SNIPPET_TRUST_MIN_CHARS 的片段是"标题开头+真实正文"的
+  // 正规 RSS description（两条头条级长摘要稿 89/75 分曾被一刀切误杀），
+  // 不再因包含标题判占位；===标题 与壳页识别照旧拦。
   const isTitlePlaceholder = !!snippet
-    && (snippet === title || (!!title && (snippet.includes(title) || title.includes(snippet))));
+    && (snippet === title
+      || (!!title && snippet.length < SNIPPET_TRUST_MIN_CHARS
+        && (snippet.includes(title) || title.includes(snippet))));
   if (snippet.length >= MIN_MATERIAL_CHARS && !isTitlePlaceholder && !looksLikePageShell(snippet)) {
     return { material: snippet, hasFullText: false, from: 'snippet', chars: snippet.length };
   }
@@ -260,24 +273,39 @@ export function groundedAssertions({ keyPoints = [], takeaway = '', body = '' } 
 }
 
 /**
- * 无全文素材不得占精选位（collect 在全文抓取后调用）。
- * 精选是"今日必读"的推荐位，一条连正文都没抓到的稿子不该出现在那里。
- * 注意只看 hasFullText：素材来自真实 RSS 摘要（snippet）的稿子仍不配精选——
- * 摘要片段是别人写的二手料，撑不起"必读"的可信度承诺（2228 就是靠片段位里的标题进精选的）。
+ * 精选素材定级（2026-10-12 校准，替代旧"只给 hasFullText=true"一刀切）：
+ * - 完全无素材（壳页/空）→ 仍摘除精选位（防御：这类稿随后会被 pickMaterial 隔离）；
+ * - 真全文 → 精选照旧，不加标记；
+ * - RSS 摘要级素材（from='snippet'）→ 允许参与 is_featured，但在 score_detail
+ *   （既有 JSON 附载列，不迁移 schema）写 material_level='summary'，
+ *   由 local-server 接口透出给前端/人工识别"摘要级精选"。
+ * 背景：一刀切把 89 分《AI「读心」》这类带数百字真实摘要的头条级稿摘出精选，
+ * 与"全面+高质量"目标冲突；放行前提由 pickMaterial 的三道闸保证。
  * @param {Array} list - 已带 is_featured 的入选文章（原地修改）
- * @returns {number} 被摘掉精选标的篇数
+ * @returns {{demoted: number, marked: number}}
  */
-export function demoteFeaturedWithoutFullText(list) {
-  if (!Array.isArray(list)) return 0;
+export function gateFeaturedMaterialTier(list) {
+  if (!Array.isArray(list)) return { demoted: 0, marked: 0 };
   let demoted = 0;
+  let marked = 0;
   for (const a of list) {
     if (!a?.is_featured) continue;
     const mat = pickMaterial(a);
-    if (!mat?.hasFullText) {
+    if (!mat) {
       a.is_featured = false;
       demoted++;
-      console.warn(`  [DEMOTE] 无全文素材，摘除精选位: ${String(a.title || '').slice(0, 40)}`);
+      console.warn(`  [DEMOTE] 无可用素材，摘除精选位: ${String(a.title || '').slice(0, 40)}`);
+      continue;
+    }
+    if (!mat.hasFullText) {
+      let detail = {};
+      try { detail = a.score_detail ? JSON.parse(a.score_detail) : {}; } catch { detail = {}; }
+      if (!detail || typeof detail !== 'object' || Array.isArray(detail)) detail = {};
+      detail.material_level = 'summary';
+      a.score_detail = JSON.stringify(detail);
+      marked++;
+      console.log(`  [FEATURE-SUMMARY] 摘要级素材通过精选，score_detail 记 material_level=summary: ${String(a.title || '').slice(0, 40)}`);
     }
   }
-  return demoted;
+  return { demoted, marked };
 }

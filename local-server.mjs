@@ -194,10 +194,22 @@ function roundStartUTC(now = new Date()) {
     .toISOString().slice(0, 19).replace('T', ' ');
 }
 
+// 摘要级素材精选标记（2026-10-12）：从 score_detail JSON 读 material_level，
+// 列表查询没带 score_detail 列时不产出该字段；前端不认识新字段会自然忽略。
+function materialLevel(row) {
+  if (row.score_detail === undefined) return null;
+  let d = {};
+  try { d = JSON.parse(row.score_detail || '{}'); } catch { d = {}; }
+  return d && d.material_level === 'summary' ? 'summary' : 'full';
+}
+
 // 给列表行附加解析后的tags对象
 function withParsedTags(row) {
   const isNew = !!row.collected_at && row.collected_at >= roundStartUTC();
-  return { ...row, tags: parseTags(row.tags), is_featured: !!row.is_featured, is_breaking: !!row.is_breaking, is_new: isNew };
+  const level = materialLevel(row);
+  const out = { ...row, tags: parseTags(row.tags), is_featured: !!row.is_featured, is_breaking: !!row.is_breaking, is_new: isNew };
+  if (level) out.material_level = level;
+  return out;
 }
 
 // 构造tag的LIKE匹配值：匹配tags JSON里任一数组包含该值，剥离引号/LIKE通配符防注入
@@ -740,7 +752,7 @@ function handleRequest(req, res) {
     if (pathname === '/api/featured') {
       const date = query.date || new Date().toISOString().split('T')[0];
       const rows = db.prepare(`
-        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags
+        SELECT id, title, original_title, source_name, source_url, category, summary, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags, score_detail
         FROM articles WHERE date_key = ? AND is_featured = 1 AND category != 'noise'
         ORDER BY ai_score DESC
       `).all(date);
@@ -814,7 +826,7 @@ function handleRequest(req, res) {
 
       const total = db.prepare(`SELECT COUNT(*) as t FROM articles ${whereSQL}`).get(...args).t;
       const rows = db.prepare(`
-        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags, date_unknown
+        SELECT id, title, source_name, source_url, category, takeaway, ai_score, is_featured, is_breaking, date_key, published_at, collected_at, tags, date_unknown, score_detail
         FROM articles ${whereSQL}
         ORDER BY date_key DESC, ai_score DESC LIMIT ? OFFSET ?
       `).all(...args, limit, offset);
@@ -1052,6 +1064,7 @@ function handleRequest(req, res) {
         tags,
         key_points: parseKeyPoints(row.key_points),
         is_featured: !!row.is_featured,
+        material_level: materialLevel(row) || 'full', // 摘要级素材稿=summary，供人工/前端识别
         related: findRelated(row, tags), // 此前相关报道（分层判定，见 findRelated；够不上相关则为空数组）
       });
     }

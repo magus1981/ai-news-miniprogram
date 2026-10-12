@@ -19,7 +19,7 @@ import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
 import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine, findExistingByTitleNorm, findExistingByEventNorm, bumpMergedCount } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
-import { demoteFeaturedWithoutFullText } from './material.mjs';
+import { gateFeaturedMaterialTier } from './material.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
 import { splitRoundups } from './roundup-split.mjs';
 import { auditMisses } from './miss-audit.mjs';
@@ -377,6 +377,22 @@ export async function probeLLMService() {
 }
 
 /**
+ * 红灯分级（2026-10-12 纯函数，供回归测试）：
+ *   fatal  —— 欠费/鉴权类隔离（沿用 fatalArrears 判据），重试无益，必须标红；
+ *   batch  —— 批量异常：单轮隔离 ≥5 条，或 隔离/(新增+隔离) > 30%——质量闸门大面积
+ *             拦截说明信源/解析出了系统性问题，必须标红叫人；
+ *   routine—— 常规隔离（每天 2~3 条 missing_body 这类）：日志留痕即可，Actions 转绿。
+ * 背景：10-08 起"隔离≥1 即标红"让连败噪声掩盖真故障（10-11/12 连红 12 轮无人接手）。
+ */
+export function classifyQuarantineAlert({ quarantinedCount, admittedCount, fatalArrears = false }) {
+  if (fatalArrears) return 'fatal';
+  const total = quarantinedCount + (admittedCount || 0);
+  const ratio = total > 0 ? quarantinedCount / total : 1;
+  if (quarantinedCount >= 5 || ratio > 0.3) return 'batch';
+  return 'routine';
+}
+
+/**
  * 主采集流程
  */
 async function main() {
@@ -665,11 +681,12 @@ async function main() {
   const roundupSubs = selected.filter(a => a.from_roundup);
   if (roundupSubs.length) console.log(`  ${roundupSubs.length} 条拼盘子事件跳过全文抓取（使用拆条摘录素材）`);
   await fetchFullContents(selected.filter(a => !a.from_roundup));
-  // 精选位只给拿到全文的稿（2026-10-08 假新闻事故 id 2228）：评分发生在全文抓取之前，
-  // 标完精选才可能发现正文没抓到（2228 就是 112 字壳页稿带着 92 分进了"今日必读"）。
-  // 无全文的稿子即使素材够生成摘要（真实 RSS 片段），也只走普通列表。
-  const demotedFeatured = demoteFeaturedWithoutFullText(selected);
-  if (demotedFeatured) console.log(`  精选降级: ${demotedFeatured} 条因无全文素材摘除精选位`);
+  // 精选素材定级（2026-10-12 校准，替代 10-08 的"只给全文"一刀切）：评分发生在全文抓取之前，
+  // 这里按实际拿到的素材定级——完全无可用素材的摘除精选；经 RSS 摘要级素材加工的
+  // 保留精选并在 score_detail 记 material_level='summary'（89/75 分长摘要头条曾被误杀）。
+  const featuredTier = gateFeaturedMaterialTier(selected);
+  if (featuredTier.demoted) console.log(`  精选降级: ${featuredTier.demoted} 条因无可用素材摘除精选位`);
+  if (featuredTier.marked) console.log(`  摘要级精选: ${featuredTier.marked} 条以摘要级素材通过精选（带 material_level=summary 标记）`);
   console.log('');
   console.log('--- Step 3: AI总结生成 ---');
   const summarized = await generateSummaries(selected);
@@ -765,7 +782,9 @@ async function main() {
     console.log(`date_unknown 通道: 新增 ${r.inserted} 条 / 已存在跳过 ${r.skipped} 条`);
   }
 
-  // 隔离 + 告警（失败必须可见：exit 非0 让 Actions 步骤标红、触发通知）
+  // 隔离 + 告警（2026-10-12 红灯分级：失败必须可见，但"可见"不等于"每轮标红"——
+  // 常规隔离（每天 2~3 条 missing_body）只留日志，Actions 转绿；
+  // 欠费/鉴权 fatal 或批量异常（单轮 ≥5 条 或 隔离/(新增+隔离)>30%）才置 exitCode=1）
   if (quarantined.length) {
     const n = await insertQuarantine(quarantined);
     const fatalArrears = quarantined.some(a =>
@@ -775,7 +794,17 @@ async function main() {
     if (fatalArrears) {
       console.error('    根因指向：DashScope 账号欠费/鉴权失败（Arrearage）——非代码问题，需充值/换密钥后由 reprocess-quarantine.mjs 回补。');
     }
-    process.exitCode = 1; // 让工作流步骤标红告警（DB 已推干净主列表，隔离表留存待重跑）
+    const tier = classifyQuarantineAlert({
+      quarantinedCount: quarantined.length,
+      admittedCount: cleanArticles.length,
+      fatalArrears,
+    });
+    if (tier === 'routine') {
+      console.warn(`  [GATE] 红灯分级=routine（隔离 ${quarantined.length} 条，本轮新增 ${cleanArticles.length} 条）：保持日志，本轮按成功退出`);
+    } else {
+      console.error(`  [GATE] 红灯分级=${tier}（隔离 ${quarantined.length} 条 / 新增 ${cleanArticles.length} 条）→ 本轮退出标红`);
+      process.exitCode = 1; // 让工作流步骤标红告警（DB 已推干净主列表，隔离表留存待重跑）
+    }
   }
 
   // Step 7: 导语——逐日基于该日全量已入库文章重生；仅在本轮有干净新条目入库的日期重生成
