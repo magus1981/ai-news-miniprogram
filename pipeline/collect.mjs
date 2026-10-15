@@ -327,7 +327,10 @@ export async function probeLLMService() {
     process.exitCode = 1;
     return false;
   }
-  const probeModel = process.env.LLM_PROBE_MODEL || 'qwen-turbo';
+  // 探活模型必须与管线真正依赖的模型一致：ai-filter/summary/review/dedup 用的是
+  // qwen-max(+filter 兜底 qwen-plus)。旧默认 qwen-turbo 是管线根本不用的模型，
+  // 一旦它单独触发限流(429 limit_requests)，就会误报"服务不可达"而空转整轮(见 2026-10-15 零产出)。
+  const probeModel = process.env.LLM_PROBE_MODEL || 'qwen-plus';
   const timeoutMs = Number(process.env.LLM_PROBE_TIMEOUT_MS) || 20000;
   // 默认端点与各 ai-*.mjs 模块用的完全一致；LLM_PROBE_URL 仅供单测指向本地桩服务
   const probeUrl = process.env.LLM_PROBE_URL
