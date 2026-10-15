@@ -495,8 +495,9 @@ ${recentBlock}
 ${articleList}`;
 
   const tag = batchTotal > 1 ? `第${batchNo}/${batchTotal}批` : '';
-  // 超时/偶发失败重试1次
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // 畸形 JSON/超时是模型侧随机失败，重掷一次常能过；仍失败返回 null 由调用方跳过该批
+  // （2026-10-15：第4/8批返回带非法转义的 JSON，重试1次仍是畸形输出，整批白丢）
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const response = await callQwen([
         { role: 'system', content: '你是AI行业资讯评估专家，只输出JSON格式结果。' },
@@ -509,7 +510,7 @@ ${articleList}`;
       return parsed.scores;
     } catch (err) {
       const reason = err.name === 'TimeoutError' ? '超时（120秒）' : err.message;
-      if (attempt < 2) {
+      if (attempt < 3) {
         console.error(`  AI评分${tag}第${attempt}次失败，重试: ${reason}`);
       } else {
         console.error(`  AI评分${tag}重试后仍失败: ${reason}`);
