@@ -44,7 +44,9 @@ const offline = [];
 // 临时下线的源（与 pipeline/sources.mjs 的 enabled:false 保持同步，挂回时两处一并改回）：
 // 其历史 0/429 产出行不再刷进 sources_alert，改记入 sources_offline 显式呈现"已下线"状态。
 const OFFLINE = new Set(['VentureBeat']); // 9/18 用户拍板临时下线：429/TLS指纹级封锁，待新出口IP后挂回
-const rows = db.prepare("SELECT source_name, date_key, fetched FROM source_health ORDER BY source_name, date_key DESC").all();
+const rows = db.prepare("SELECT source_name, date_key, fetched FROM source_health WHERE source_name != 'LLM_PROBE' ORDER BY source_name, date_key DESC").all();
+// LLM_PROBE 是 collect.mjs 探活失败时写的合成行（source_name 不在 SOURCES 里），
+// 它 fetched 恒为 0，混进信源循环会被当成"某源连续 N 天 0 产出"误报。单独成段呈现。
 const bySrc = new Map();
 for (const r of rows) { if (!bySrc.has(r.source_name)) bySrc.set(r.source_name, []); bySrc.get(r.source_name).push(r); }
 const officialSet = new Set(['网信办','工信部','国务院','TC260','国家数据局','国家发改委','北京市政府','上海市政府','浙江省政府','广东省政府','江苏省政府','総務省 MIC','経済産業省 METI','デジタル庁','MSIT 과기정통부','SDAIA 沙特数据AI局','UAE AI News','The Hill Tech','Politico Tech','EU Digital Strategy','OpenAI Blog','Google DeepMind','Google AI','Microsoft AI','NVIDIA Blog','Anthropic','DeepSeek 官方']);
@@ -59,6 +61,22 @@ for (const [name, recs] of bySrc) {
 }
 snap.sources_alert = alerts;
 snap.sources_offline = offline;
+
+// ---- 加工服务探活状态（2026-10-28 新增，与信源告警分开）----
+// LLM_PROBE 行只在探活失败的那一轮写；有行即该日加工服务挂过，采集已按降级路径跑完。
+// 口径：近14天内出现的 LLM_PROBE 行数与最近一行的 error 文本。
+try {
+  const probeRows = db.prepare("SELECT date_key, error FROM source_health WHERE source_name = 'LLM_PROBE' ORDER BY date_key DESC LIMIT 14").all();
+  if (probeRows.length) {
+    snap.llm_probe = {
+      days_degraded: probeRows.length,
+      latest_day: probeRows[0].date_key,
+      latest_error: probeRows[0].error,
+      recent_days: probeRows.slice(0, 7).map(r => r.date_key),
+    };
+    console.error(`!!! [ALERT] LLM_PROBE_DEGRADED 加工服务近14天有 ${probeRows.length} 天探活失败，最近一天 ${probeRows[0].date_key}：${probeRows[0].error || ''} !!!`);
+  }
+} catch {}
 
 // ---- 存储 ----
 // 2026-09-09 口径修正:存档改全量永久保留+回填补档,体积只增不减属预期,250M旧线废弃;唯一硬报警=磁盘水位>75%(disk_alert)
