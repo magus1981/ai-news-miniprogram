@@ -25,6 +25,7 @@ import { splitRoundups } from './roundup-split.mjs';
 import { auditMisses } from './miss-audit.mjs';
 import { resolvePublishedAt, extractPublishedFromUrl, extractPublishedFromHtml } from './date-extract.mjs';
 import { normalizeUrl, normalizeTitle, isDedupableTitle } from './normalize.mjs';
+import { scrapeHealthError } from './scraper-result.mjs';
 import { scrapeQbitai } from './scraper-qbitai.mjs';
 import { scrapeJiqizhixin } from './scraper-jiqizhixin.mjs';
 import { scrapeAnthropic } from './scraper-anthropic.mjs';
@@ -251,6 +252,8 @@ async function fetchSource(source, attempt = 1) {
 
 /**
  * 采集单个爬虫源（如量子位），失败降级为空数组
+ * 返回值三要素写进 source_health：fetched（新鲜数）、raw（解析命中数）、error（可区分成因）。
+ * error 由 scraper-result.scrapeHealthError 组成，不再恒 null（2026-10-28）。
  */
 async function fetchScraperSource(source) {
   const scrapeFn = SCRAPERS[source.scraper];
@@ -258,12 +261,22 @@ async function fetchScraperSource(source) {
     console.error(`  [FAIL] ${source.name}: 未注册的爬虫 "${source.scraper}"`);
     return { articles: [], raw: 0, error: `未注册的爬虫 "${source.scraper}"` };
   }
-  const articles = await scrapeFn(source); // 爬虫内部已try/catch
+  let articles = [];
+  let thrown = null;
+  try {
+    articles = await scrapeFn(source); // 爬虫内部一般自捕异常；逃逸异常在此兜住，避免拖挂整轮
+  } catch (err) {
+    thrown = err?.message || String(err);
+    console.error(`  [FAIL] ${source.name}: 爬虫抛未捕获异常 ${thrown}`);
+  }
   // 与RSS源相同的时效过滤（爬虫返回的 published_at 为ISO串或null）
   const fresh = filterByFreshness(articles, source);
   console.log(`  [OK] ${source.name}: ${fresh.length} 条（爬虫原始 ${articles.length} 条）`);
-  // 爬虫内部失败时返回空数组：raw=0 即可反映异常，无需额外error
-  return { articles: fresh, raw: articles.length, error: null };
+  return {
+    articles: fresh,
+    raw: articles.length,
+    error: scrapeHealthError(articles, { freshCount: fresh.length, thrown }),
+  };
 }
 
 /**
@@ -297,25 +310,31 @@ export function computeHealthAlerts(history, sources) {
 }
 
 /**
- * 加工服务探活（2026-09-29 欠费事故修复）
- * 背景：09-28 起 DashScope 欠费，AI 加工全线失败，但要看完整跑完约 30 分钟、
- * 数隔离表爆量才被动发现（本轮事故就是人工撞出来的）。这里在开跑前用一次极小调用
- * （max_tokens=1）先验账号可用性，账号级不可用就立刻中止，省下整轮抓取与 LLM 花费，
- * 也让告警提前约半小时。
+ * 加工服务探活（2026-09-29 欠费事故修复；2026-10-28 与采集解耦）
+ * 用途：开跑前用一次极小调用（max_tokens=1）判加工服务账号是否可用，
+ * 结果写进日志与 source_health，供 daily-check 与 /api/source-health 直接看见。
  * 判定口径：
- *   - 账号级（401/402/403、Arrearage/欠费/InvalidApiKey/Access denied）→ 立即中止，不重试
+ *   - 账号级（401/402/403、Arrearage/欠费/InvalidApiKey/Access denied）→ 不重试
  *     （重试不会让欠费变可用，只会浪费时间）；
- *   - 非账号级（网络超时、5xx、DNS）→ 重试一次，仍失败才中止（避免一次网络抖动误杀整轮采集）。
- * 中止沿用既有 fail-fast 路径：打印 [ALERT] + process.exitCode=1 让 Actions 步骤标红触发通知，
- * 不另造第二套告警通道。SKIP_LLM_PROBE=1 可人工绕过（仅限明知账号正常、要先收原始新闻的补跑）。
+ *   - 非账号级（网络超时、5xx、DNS）→ 重试一次，仍失败才判失败（避免一次网络抖动误判）。
+ * 失败处理（2026-10-28 改）：不再中止整轮。抓取、去重、事件簇合并、筛选、评分、入库照常跑完，
+ * 加工环节走各模块既有降级路径（fallbackFilter 打 _score_fallback、总结失败打 _proc_failed），
+ * 半成品一律进 articles_quarantine，不进首页主列表。
+ * 退出码仍置 1，让 Actions 步骤标红触发通知——降级必须可见。
+ * 背景：10-25 12:05Z 起 23 轮因探活挂而在 1 秒内中止，全库 0 入库且库里无任何痕迹（见 DIAG-20261027-zero.md）。
+ * SKIP_LLM_PROBE=1 可人工跳过探活（仅限明知账号正常的补跑）。
  */
 const PROBE_ACCOUNT_FATAL_RE = /Arrearage|overdue|欠费|InvalidApiKey|AccessDenied|Access denied|Incorrect API key|Unauthorized/i;
+
+// source_health 里探活行用的固定源名。它不在 SOURCES 中，因此不参与"连续0产出"告警计算
+// （computeHealthAlerts 只遍历 SOURCES），专门用来区分"探活挂"与"源停更"两种 raw=0。
+export const LLM_PROBE_HEALTH_KEY = 'LLM_PROBE';
 
 export function probeIsAccountFatal(r) {
   return r.status === 401 || r.status === 402 || r.status === 403 || PROBE_ACCOUNT_FATAL_RE.test(r.body || '');
 }
 
-export async function probeLLMService() {
+export async function probeLLMService(detail = null) {
   if (process.env.SKIP_LLM_PROBE === '1') {
     console.log('[WARN] SKIP_LLM_PROBE=1：已跳过加工服务探活（仅人工补跑使用）');
     return true;
@@ -323,8 +342,9 @@ export async function probeLLMService() {
   const key = process.env.DASHSCOPE_API_KEY;
   if (!key) {
     console.error('!!! [ALERT] 加工服务探活失败：DASHSCOPE_API_KEY 未设置（密钥缺失，非欠费） !!!');
-    console.error('!!! [ALERT] 本轮采集已中止（未抓取任何源）。请检查 workflow secrets 配置。 !!!');
+    console.error('!!! [ALERT] 本轮加工环节降级（抓取照常完成，失败产物进隔离表）。请检查 workflow secrets 配置。 !!!');
     process.exitCode = 1;
+    if (detail) { detail.reason = 'key_missing'; detail.status = 0; detail.body = 'DASHSCOPE_API_KEY 未设置'; }
     return false;
   }
   // 探活模型必须与管线真正依赖的模型一致：ai-filter/summary/review/dedup 用的是
@@ -371,11 +391,12 @@ export async function probeLLMService() {
   const fatal = probeIsAccountFatal(r);
   const why = fatal ? '账号级不可用（欠费/鉴权失败）' : '服务不可达（超时/5xx/网络）';
   console.error('');
-  console.error(`!!! [ALERT] 加工服务探活失败：${why} — 立即中止本轮采集（未抓取任何源） !!!`);
+  console.error(`!!! [ALERT] 加工服务探活失败：${why} — 本轮加工环节降级（抓取照常跑完） !!!`);
   console.error(`!!! [ALERT] HTTP ${r.status || 'N/A'}｜${r.body.slice(0, 200) || '(无响应体)'} !!!`);
   console.error('!!! [ALERT] 处置：检查 DashScope 账户余额/API Key 后重跑本轮；'
-    + '确需先收原始新闻可临时 SKIP_LLM_PROBE=1，但产物会进隔离表不会上首页。 !!!');
+    + '本轮抓取到的稿件会进隔离表，恢复后由 reprocess-quarantine.mjs 回补，不上首页。 !!!');
   process.exitCode = 1; // 沿用既有标红路径 → Actions 步骤失败触发通知
+  if (detail) { detail.reason = fatal ? 'account_fatal' : 'unreachable'; detail.status = r.status; detail.body = r.body; }
   return false;
 }
 
@@ -429,14 +450,25 @@ async function main() {
   console.log(`源数量: ${activeSources.length}${lightMode ? '（凌晨轻量轮：仅海外源）' : ` / 全量 ${SOURCES.length}`}`);
   console.log('');
 
-  // Step 0: 加工服务探活（2026-09-29 欠费事故修复）——放在任何抓取之前，
-  // 账号欠费/鉴权失败时立即中止，不要等整轮 30 分钟跑完才被动发现。
-  if (!await probeLLMService()) return;
-
-  // Step 1: 确保数据库表存在
+  // Step 0: 建表先行（2026-10-28 与探活解耦）——任何中止/降级路径都要能落库留痕。
   await initDB();
 
-  // Step 2: 采集所有源（RSS + 爬虫，按 type 分派），同步记录各源产出供健康监控
+  // Step 0.5: 加工服务探活。失败不再中止整轮：抓取照常跑完，加工走降级，
+  // 半成品进隔离表；探活挂本身单独写一行 source_health，与"源停更"区分开。
+  const todayKey = new Date().toISOString().split('T')[0];
+  const probeDetail = { reason: '', status: 0, body: '' };
+  const probeOk = await probeLLMService(probeDetail);
+  if (!probeOk) {
+    await recordSourceHealth(todayKey, [{
+      source_name: LLM_PROBE_HEALTH_KEY,
+      fetched: 0,
+      raw: 0,
+      error: `PROBE_DEGRADED ${probeDetail.reason || 'unknown'} HTTP=${probeDetail.status || 'N/A'} ${(probeDetail.body || '').slice(0, 200)}`,
+    }]);
+    console.log('[DEGRADED] 加工服务不可用：本轮抓取照常完成，加工产物按降级路径处理');
+  }
+
+  // Step 1: 采集所有源（RSS + 爬虫，按 type 分派），同步记录各源产出供健康监控
   console.log('--- Step 1: 采集 ---');
   const allArticles = [];
   const healthStats = [];
@@ -462,7 +494,6 @@ async function main() {
 
   // Step 2.1: 信源健康——先记录后告警（必须在"无文章提前退出"之前执行：
   // 全部源挂掉正是最需要记录和告警的时刻）
-  const todayKey = new Date().toISOString().split('T')[0];
   await recordSourceHealth(todayKey, healthStats);
   const healthHistory = await getSourceHealthHistory(14);
   const alerts = computeHealthAlerts(healthHistory, SOURCES);

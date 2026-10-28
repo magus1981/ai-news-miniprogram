@@ -492,12 +492,12 @@ export const SOURCES = [
   // === 国内模型厂官方发布源（2026-08-13 接入）===
   {
     name: 'DeepSeek 官方',
-    // DeepSeek官网首页SSR内嵌官方发布公告（"DeepSeek-V4-Pro 正式版发布..."），
+    // 官方公告列表页 https://www.deepseek.com/news/ 为SSR卡片结构（2026-10-17 官网改版后）。
     // 重大模型发布官方首发于此，比媒体稿早几小时到几天（V4-Pro-0813深夜上线教训）。
-    // 按版本构造唯一URL，URL去重保证每版只入一次。
+    // 卡片带真实中文发布日期，source_url 用真实文章页 /news/<slug>/，URL去重保证每篇只入一次。
     type: 'scraper',
     scraper: 'deepseek',
-    url: 'https://www.deepseek.com/',
+    url: 'https://www.deepseek.com/', // 爬虫主抓 /news/，首页仅作公告文案兜底（此处记录入口域名）
     category: 'technology',
     language: 'zh',
     source_type: 'official',

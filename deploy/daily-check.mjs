@@ -111,6 +111,43 @@ if (GH_TOKEN) {
   } catch {}
 }
 
+// ---- 连续失败主动告警（2026-10-28 新增）----
+// 背景：2026-10-25 12:05Z 起连续 23 轮采集 failure、全库 0 入库，库里没有任何痕迹，
+// 全靠用户肉眼看 Actions 列表才发现（见 DIAG-20261027-zero.md）。快照字段等人读等于没告警。
+// 口径：按 created_at 倒数连续 conclusion==='failure' 的轮数，跳过仍在跑的 in_progress/queued。
+// 达 3 轮即：快照写 consecutive_failure_alert + stdout 打 [ALERT] 行（进 daily-check.log）
+// + 若配了 ALERT_WEBHOOK_URL 就 POST 一份。未配 webhook 时告警只落本机日志与快照，
+// 需要外部推送由运维设置该环境变量（值不入库、不回显）。
+try {
+  const recent = snap.actions_recent || [];
+  let consecutive = 0;
+  let sinceAt = null;
+  for (const r of recent) {
+    if (r.status === 'in_progress' || r.status === 'queued') continue;
+    if (r.conclusion === 'failure') { consecutive++; sinceAt = sinceAt || r.at; continue; }
+    break;
+  }
+  snap.consecutive_failures = consecutive;
+  if (consecutive >= 3) {
+    const msg = `采集连续失败 ${consecutive} 轮（最近一轮 ${sinceAt || '?'}，GitHub Actions magus1981/ai-news-miniprogram），生产入库可能已中断，请查最近一轮第7步日志的 [ALERT] 行`;
+    snap.consecutive_failure_alert = { count: consecutive, since: sinceAt, message: msg };
+    console.error(`!!! [ALERT] COLLECT_CONSECUTIVE_FAILURE ${msg} !!!`);
+    if (process.env.ALERT_WEBHOOK_URL) {
+      try {
+        execFileSync('curl', ['-s', '-m', '15', '-X', 'POST', '-H', 'Content-Type: application/json',
+          '--data', JSON.stringify({ text: `[ai-news] ${msg}` })], { encoding: 'utf8' });
+        console.log('[ALERT] COLLECT_CONSECUTIVE_FAILURE 已推送 webhook');
+      } catch (e) {
+        console.error(`[ALERT] webhook 推送失败: ${e.message}`);
+      }
+    } else {
+      console.log('[ALERT] COLLECT_CONSECUTIVE_FAILURE 未配 ALERT_WEBHOOK_URL，仅落快照与本机日志');
+    }
+  }
+} catch (e) {
+  snap.consecutive_failure_alert = { error: String((e && e.message) || e) };
+}
+
 // ---- 备份健康（2026-09-14 新增）----
 // 备份链路自己必须被监控：8/5 生产库真损坏过一次（data/ 里还留着 corrupt/recovered 文件），
 // 而"脚本在跑"与"备份真的能恢复"是两件事。这里只读日志和目录，不碰生产库。
@@ -154,6 +191,6 @@ try {
 }
 
 fs.writeFileSync(OUT, JSON.stringify(snap, null, 1));
-console.log(dayKey(now), 'snapshot OK | days:', snap.days.length, '| alerts:', alerts.length, '| offline:', offline.length, '| archive:', snap.archive_mb + 'MB', '| disk:', (snap.disk_usage_pct ?? '?') + '%', snap.disk_alert ? 'DISK_ALERT' : '',
+console.log(dayKey(now), 'snapshot OK | days:', snap.days.length, '| alerts:', alerts.length, '| offline:', offline.length, '| archive:', snap.archive_mb + 'MB', '| disk:', (snap.disk_usage_pct ?? '?') + '%', snap.disk_alert ? 'DISK_ALERT' : '', '| actions_fail_streak:', snap.consecutive_failures ?? '?', snap.consecutive_failure_alert ? 'COLLECT_ALERT' : '',
   '| backup:', snap.backup?.last_ok || 'NONE', `${snap.backup?.kept ?? 0}份`,
   (snap.backup?.alerts?.length ? `BACKUP_ALERT(${snap.backup.alerts.length})` : 'backup-ok'));
