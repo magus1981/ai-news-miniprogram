@@ -127,6 +127,71 @@ if (!DASHSCOPE_API_KEY) {
   console.warn('警告: DASHSCOPE_API_KEY 未设置，AI筛选将使用降级策略（按来源权重排序）');
 }
 
+// ============================================================================
+// AI疑似事件反向推断通道
+// ----------------------------------------------------------------------------
+// 头部重AI投入企业 / 关键基础设施公司发生宕机·安全·中断类事件时，其基础设施本身就是
+// AI 算力与服务底座。这类事件标题里通常不出现“AI”字样，会被 scoreBatch 的「AI相关性
+// 硬规则」（与AI无实质关联→impact≤3、novelty≤2）压到垫底，进不了精评候选、过不了配额
+// 而被丢弃（微软Azure宕机、FAA停飞漏检根因）。本通道在评分前做确定性预检：命中即打布尔标记
+// ai_suspected_incident=true（v2 改法：不再改写 category，category 维持 infra/technology 原判定），
+// 从而绕过相关性硬规则、强制纳入精评候选、免配额放行入池——但不强制高分，
+// 最终分数仍交给下游 qwen-max 精评按真实影响力定档。下游三处判定只读该布尔，不依赖 category，
+// 故不牵连 classify-rules.mjs 的 VALID_CATEGORIES、不新增分类项、不影响前台分类页。
+// 维护提示：白名单/触发词/源名单均为人工维护，公司新增AI投入或新的故障表述需手动补充。
+// ============================================================================
+
+// 重AI投入企业白名单：其基础设施故障大概率与AI相关。必选7 + 航空1（仅 faa，正在用AI调度）。
+export const AI_INCIDENT_ORGS = [
+  // 必选：头部云 / 模型 / 芯片厂（含其云平台别名）
+  'microsoft', 'azure', 'amazon', 'aws', 'google', 'alphabet', 'gcp',
+  'meta', 'nvidia', 'openai', 'anthropic',
+  // 航空基础设施：v2 仅保留 FAA（地面停飞令影响面大且高度依赖算力系统）；
+  // 按 6 点拍板移除 delta / united / american airlines（噪声大、非算力底座当事方）。
+  'faa',
+];
+
+// 事件触发词：仅宕机/中断/故障/安全类，不匹配产品发布/财报/招聘 → 天然防误触第一道闸。
+// v2 新增 recall 及中文「服务中断/断网/网崩」；按 6 点拍板刻意排除 shutdown/延期(suspend)/断供。
+export const AI_INCIDENT_TRIGGERS = [
+  // 中文
+  '宕机', '中断', '停飞', '故障', '瘫痪', '崩溃', '不可用', '服务异常', '事故',
+  '安全漏洞', '数据泄露', '遭入侵', '勒索', '服务中断', '断网', '网崩',
+  // 英文
+  'outage', 'disruption', 'grounding', 'grounded', 'downtime', 'degradation', 'degraded',
+  'service disruption', 'system failure', 'infrastructure failure', 'meltdown', 'crash',
+  'unavailable', 'breach', 'security breach', 'cyberattack', 'cyber-attack', 'ransomware',
+  'vulnerability', 'data leak', 'data breach', 'recall',
+];
+
+// 新接入的综合/IT运维/安全信源的 source_name 名单：这些源报道主体广泛，稿件命中触发词即可反向推断
+// （不要求白名单公司）。与 sources.mjs 的 aiSuspectedBypass 标记语义对应；但 collect.mjs 不把源级
+// 自定义字段传播到 article 对象，故运行时判定以本 source_name 名单为准。
+export const AI_INCIDENT_SOURCES = [
+  'BleepingComputer', 'The Register', 'Reuters Technology', 'Azure Status',
+];
+
+function aiIncidentEscapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+const AI_INCIDENT_ORG_RE = new RegExp('\\b(' + AI_INCIDENT_ORGS.map(aiIncidentEscapeRe).join('|') + ')\\b', 'i');
+const AI_INCIDENT_TRIG_RE = new RegExp(AI_INCIDENT_TRIGGERS.map(aiIncidentEscapeRe).join('|'), 'i');
+
+/**
+ * 确定性反向推断预检。命中条件（任一）：
+ *   路径1：标题/摘要含宕机·安全类触发词 ∧ 事件主体∈ AI_INCIDENT_ORGS；
+ *   路径2：稿件 source_name∈ AI_INCIDENT_SOURCES（专业运维/安全源）∧ 含触发词。
+ * 不要求出现“AI”字样。命中返回 true。
+ * @param {{title?:string, content_snippet?:string, source_name?:string}} a
+ * @returns {boolean}
+ */
+export function detectAiSuspectedIncident(a) {
+  if (!a) return false;
+  const hay = `${a.title || ''} ${a.content_snippet || ''}`;
+  if (!AI_INCIDENT_TRIG_RE.test(hay)) return false; // 触发词是第一道闸（防误触）
+  if (AI_INCIDENT_ORG_RE.test(hay)) return true;     // 路径1：白名单公司主体
+  if (a.source_name && AI_INCIDENT_SOURCES.includes(a.source_name)) return true; // 路径2：专业源
+  return false;
+}
+
 /**
  * 调用通义千问API
  */
@@ -169,6 +234,16 @@ async function callQwen(messages, temperature = 0.3, model = 'qwen-plus') {
  */
 export async function filterArticles(articles, recentTitles = [], dayContexts = {}, now = Date.now()) {
   if (articles.length === 0) return [];
+
+  // AI疑似事件反向推断预检（评分前）：命中「白名单公司+宕机/安全触发词」或「专业运维/安全源+触发词」
+  // → 仅打布尔标记 ai_suspected_incident（v2：不改写 category，category 维持 infra/technology 原判定），
+  //   从而绕过后续「AI相关性硬规则」、强制纳入精评候选（见 pickRefineCandidates）、免配额放行入池（见 selectByQuota）。
+  for (const a of articles) {
+    if (a.ai_suspected_incident) continue;
+    if (detectAiSuspectedIncident(a)) {
+      a.ai_suspected_incident = true;
+    }
+  }
 
   // 无API Key时直接使用降级策略
   if (!DASHSCOPE_API_KEY) {
@@ -435,7 +510,7 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
  */
 async function scoreBatch(items, recentBlock, batchNo, batchTotal) {
   const articleList = items.map((a, i) =>
-    `[${i + 1}] 来源:${a.source_name} | 标题:${a.title} | 摘要:${(a.content_snippet || '').slice(0, 400)}`
+    `[${i + 1}]${a.ai_suspected_incident ? '【AI疑似事件】' : ''} 来源:${a.source_name} | 标题:${a.title} | 摘要:${(a.content_snippet || '').slice(0, 400)}`
   ).join('\n');
 
   const prompt = `你是一位资深AI行业分析师。请对以下AI资讯逐篇评分，并做事件聚类。
@@ -448,6 +523,7 @@ async function scoreBatch(items, recentBlock, batchNo, batchTotal) {
 AI相关性硬规则（2026-08-13事故：CRISPR小鼠性别转换这类纯生物新闻混入AI资讯）：
 - 与AI无实质关联的内容（纯生物/医学/农业/能源/汽车/金融/消费/体育/娱乐/民生，或AI仅顺带提及的"智能"营销标签稿）：novelty给0-2、impact给0-3，总分必然垫底无法入选
 - 只有AI是主题或实质参与方（模型/算法/算力/AI产品/AI研究/AI政策/AI商业）才算AI资讯
+- 【例外·AI疑似事件】标注"【AI疑似事件】"的文章：头部重AI投入企业/关键基础设施公司发生宕机·中断·安全事件，其基础设施本身就是AI算力与服务底座。本条AI相关性硬规则对其**不适用**——不得因"标题无AI字样"压 impact/novelty，请按事件真实影响面与事实密度正常给三个子分（影响大规模用户/算力集群/线上服务=高 impact，多家媒体跟进=高 novelty）
 
 评分约束：
 - 旗舰模型的版本号发布（如GLM-5.3、GPT-5.6、Opus 5等）是新一代正式发布而非已知产品的小迭代：
@@ -965,6 +1041,20 @@ export function pickRefineCandidates(list, dayContexts = {}, limit = 30, todayKe
   const result = [];
   const push = a => { picked.add(a); result.push(a); };
 
+  // AI疑似事件反向推断通道：强制纳入精评候选。粗排若仍被相关性/旧闻规则误压到低分档，
+  // 这些稿会在下面的按日保底/全局Top-N 中被挤出 REFINE_CANDIDATES、连被 qwen-max 重判的机会都没有
+  // （policyQuotaPicks 同类教训：保底必须在候选池之外扫描，否则系统性低分者永不入池）。
+  // 这里先无条件把疑似事件塞进候选池，让精评按真实影响力重定档位；单轮封顶防灌水。
+  const AI_INCIDENT_REFINE_MAX = 8;
+  let incidentForced = 0;
+  for (const a of list) {
+    if (a.ai_suspected_incident && !picked.has(a) && incidentForced < AI_INCIDENT_REFINE_MAX) {
+      push(a);
+      incidentForced++;
+    }
+  }
+  if (incidentForced > 0) console.log(`AI疑似事件: 强制纳入精评候选 ${incidentForced} 条`);
+
   const openDays = [];
   const farDays = [];
   for (const [dk, items] of byDay) {
@@ -1038,8 +1128,19 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles
   // 被汰会打穿保底，宁宽勿错。
   const isProtectedVictim = a => a.category === 'policy' || Number(a.is_featured) === 1;
   const protectedPicks = deduped.filter(isProtectedPolicy).slice(0, 2);
-  const pool = protectedPicks.length ? deduped.filter(a => !protectedPicks.includes(a)) : deduped;
+  // AI疑似事件反向推断通道·免配额放行（镜像政策保护机制，保证"直接入池"）：
+  // 疑似事件即使被相关性规则/旧闻规则压到低于正常配额地板(65)，只要 >= AI_INCIDENT_MIN_SCORE
+  // 就绕开日配额与汰换竞争直接放行；单轮封顶 AI_INCIDENT_QUOTA_PER_ROUND，够格精选与否仍由
+  // markFeatured(统一 FEATURED_MIN_SCORE) 决定——即"入池不强制高分"。
+  const AI_INCIDENT_MIN_SCORE = 56;      // 与政策保底/PICK补齐同口径的边缘档下沿
+  const AI_INCIDENT_QUOTA_PER_ROUND = 3; // 单轮至多放行 3 条疑似事件
+  const incidentPicks = deduped
+    .filter(a => a.ai_suspected_incident && a.ai_score >= AI_INCIDENT_MIN_SCORE && !protectedPicks.includes(a))
+    .slice(0, AI_INCIDENT_QUOTA_PER_ROUND);
+  const protectSet = new Set([...protectedPicks, ...incidentPicks]);
+  const pool = protectSet.size ? deduped.filter(a => !protectSet.has(a)) : deduped;
   if (protectedPicks.length) console.log(`政策保护通道: 免配额放行 ${protectedPicks.length} 条官方政策(>=70分)`);
+  if (incidentPicks.length) console.log(`AI疑似事件通道: 免配额放行 ${incidentPicks.length} 条(>=${AI_INCIDENT_MIN_SCORE}分, 单轮上限${AI_INCIDENT_QUOTA_PER_ROUND})`);
 
   const capRemaining = Math.max(0, 20 - existingCount);
   if (capRemaining === 0) {
@@ -1065,7 +1166,7 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles
     // 突发通道兼容（>=85，至多2条）：经汰换已入选的不重复计入，其余仍兜底放行
     const breaking = pool.filter(a => a.ai_score >= 85 && !selected.includes(a)).slice(0, 2);
     if (breaking.length) console.log(`突发通道: 当日配额已满，仍放行 ${breaking.length} 条(>=85分)`);
-    return [...protectedPicks, ...selected, ...breaking];
+    return [...protectedPicks, ...incidentPicks, ...selected, ...breaking];
   }
   // 2026-08-27 门槛60→65：用户反馈质量下滑，60-64分"可看"档下沿多为凑数稿
   // （细分领域小消息、顺带提AI的泛科技稿），地板抬高一格，静日仍有56分补齐通道兜底
@@ -1083,7 +1184,7 @@ export function selectByQuota(deduped, existingCount = 0, opts = {}, dayArticles
       selected.push(...backfill);
     }
   }
-  return [...protectedPicks, ...selected];
+  return [...protectedPicks, ...incidentPicks, ...selected];
 }
 
 /**

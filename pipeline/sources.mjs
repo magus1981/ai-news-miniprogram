@@ -504,6 +504,61 @@ export const SOURCES = [
     official: true,
     alertDays: 7,
   },
+
+  // === 综合/IT运维/安全信源（2026-11-xx 新增：补采头部公司基础设施故障/安全事件）===
+  // 这批源的稿件多为 outage/breach/宕机/停飞类，标题通常不含"AI"字样，会被现有
+  // 「AI相关性硬规则」误判为"与AI无实质关联"而垫底出局。aiSuspectedBypass:true 为**语义标记**
+  // （配合 ai-filter.mjs 的 AI_INCIDENT_SOURCES 反向推断通道放行）。
+  // 注意：collect.mjs 只把 name/url/category/language/source_type 等固定字段写进 article 对象，
+  // 并不透传任意源级自定义字段——真正的运行时放行以 ai-filter.mjs 里 AI_INCIDENT_SOURCES 名单
+  // 按 source_name 匹配为准；此处 aiSuspectedBypass 作意图声明/未来字段，两处名单需保持一致。
+  // 采集用 rss-parser，原生兼容 RSS2.0 与 Atom，The Register 的 .atom 可直接解析（无需改采集层）。
+  {
+    name: 'BleepingComputer',
+    // 安全事件/勒索/漏洞/宕机第一手突发源，RSS2.0；日更量大，靠AI筛选闸门+反向推断通道双重收口。
+    // v2 拍板点6：限频 fetchIntervalHours=2（collect.mjs:480 按源抓取间隔，距上次<2h 本轮跳过），抑制候选灌水。
+    url: 'https://www.bleepingcomputer.com/feed/',
+    userAgent: 'Mozilla/5.0 (compatible; AINewsBot/1.0)',
+    category: 'infra',
+    language: 'en',
+    source_type: 'media',
+    fetchIntervalHours: 2,
+    aiSuspectedBypass: true,
+  },
+  {
+    name: 'The Register',
+    // 企业IT/云/基础设施故障与安全的深度报道，Atom 订阅源（rss-parser 兼容）。安全头条栏目 feed。
+    // v2 拍板点6：限频 fetchIntervalHours=2，抑制候选灌水。
+    url: 'https://www.theregister.com/security/headlines.atom',
+    userAgent: 'Mozilla/5.0 (compatible; AINewsBot/1.0)',
+    category: 'infra',
+    language: 'en',
+    source_type: 'media',
+    fetchIntervalHours: 2,
+    aiSuspectedBypass: true,
+  },
+  {
+    name: 'Reuters Technology',
+    // 路透科技：微软/AWS/FAA 等重大基础设施/安全事件的主流通讯社首发。路透 2020 起下线公开 RSS，
+    // 改走 Google News RSS 定向检索 reuters.com 科技栏目（与 UAE AI News 同款兜底模式，rss-parser 兼容）。
+    url: 'https://news.google.com/rss/search?q=site:reuters.com+(technology+OR+cyber+OR+outage+OR+cloud)&hl=en-US&gl=US&ceid=US:en',
+    category: 'technology',
+    language: 'en',
+    source_type: 'media',
+    aiSuspectedBypass: true,
+  },
+  {
+    name: 'Azure Status',
+    // Azure 官方服务健康/状态 feed（宕机·降级·服务中断第一手，微软系基础设施事件最强信号）。
+    // 若该 feed 端点变更或需鉴权，接入前先实测 fetch+parseString（同注释区约定：接入前均经实测）。
+    url: 'https://azure.microsoft.com/en-us/status/feed/',
+    userAgent: 'Mozilla/5.0 (compatible; AINewsBot/1.0)',
+    category: 'infra',
+    language: 'en',
+    source_type: 'official',
+    official: true,
+    aiSuspectedBypass: true,
+  },
 ];
 
 // 7个分类定义
