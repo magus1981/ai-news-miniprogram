@@ -15,12 +15,20 @@
  *   node pipeline/reprocess-quarantine.mjs --limit 50 --dry-run
  *
  * 前置：DASHSCOPE_API_KEY 必须可用（脚本开头会探活；欠费未解会直接退出，不空跑）。
+ *
+ * 2026-11-15 三条防呆（闭环补全，此前 attempts 恒 0 且无调度，隔离稿被静默永久丢弃）：
+ *  (a) 按隔离原因分类：质量不合格类（ungrounded_summary 等）绝不回流首页——不重加工、
+ *      不入库，仅累加 attempts 标记待人工；抓取/加工失败类（missing_body/HTTP 4xx/
+ *      timeout/中继失败/乱码/评分降级）→ 走正常抓取+摘要+AI二审管线重处理。
+ *  (b) 限流防冲击：每轮回补条数上限由 --limit 控制（调度轮用 8），未补完的下轮继续。
+ *  (c) 重试上限防拉黑：attempts>=3 的条目不再被捞取（终态搁置）；常 403 死源
+ *      （politico/thehill/aiera 等）失败一次 attempts+2 加速搁置，减少冲撞。
  */
 import './load-env.mjs';
 import {
   initDB, insertArticles, insertQuarantine, getQuarantineBatch, deleteQuarantineByUrl,
   getBadMainArticles, updateArticleFromReprocess, deleteArticleByUrl, getArticlesByDate,
-  saveDailyIntro, countQuarantine,
+  saveDailyIntro, countQuarantine, bumpQuarantineAttempts,
 } from './db.mjs';
 import { fetchFullContents } from './fetch-content.mjs';
 import { generateSummaries } from './ai-summary.mjs';
@@ -43,6 +51,23 @@ function isClean(a) {
     && mojibakeRatio(a.title || '') <= 0.05
     && mojibakeRatio(a.summary || '') <= 0.05;
 }
+
+// ── 防呆(a) 原因分类 ──
+/** 质量不合格类：即使素材/摘要重写也可能仍不成立，绝不回流首页，只标记待人工。 */
+const QUALITY_REASON_RE = /ungrounded_summary|摘要.*对不上|正文仅.*空壳/i;
+/** 常 403 死源（域名片段）：失败加速搁置，防反复冲撞被拉黑 IP（防呆(c)）。 */
+const HEAVY_403_HOSTS = ['politico.com', 'thehill.com', 'aiera.com'];
+
+export function reasonClass(raw) {
+  const reason = String(raw.reason || raw._proc_reason || '');
+  if (QUALITY_REASON_RE.test(reason)) return 'quality';
+  return 'fetch'; // missing_body/HTTP 4xx/timeout/中继/乱码/评分降级等一律按可重试处理
+}
+export function isHeavy403(raw) {
+  const url = String(raw.source_url || '').toLowerCase();
+  return HEAVY_403_HOSTS.some(h => url.includes(h));
+}
+const MAX_ATTEMPTS = 3; // attempts>=3 由 getQuarantineBatch 过滤，此处兜底防御
 
 async function probeLLM() {
   const key = process.env.DASHSCOPE_API_KEY;
@@ -104,10 +129,21 @@ async function main() {
   if (!queue.length && !bad.length) { console.log('无待回补条目。当前隔离队列总数：', await countQuarantine()); return; }
 
   const affectedDays = new Set();
-  let fixed = 0, refail = 0;
+  let fixed = 0, refail = 0, skippedQuality = 0;
 
   // 1) 隔离队列 → 合格后写入主列表并删除隔离行
   for (const raw of queue) {
+    const attempts = Number(raw.attempts) || 0;
+    if (attempts >= MAX_ATTEMPTS) { console.log(`  [SHELVED] attempts=${attempts} 终态搁置: ${(raw.title || '').slice(0, 40)}`); continue; }
+
+    // 防呆(a)：质量不合格类不重加工、不入库——标记待人工，绝不回流首页
+    if (reasonClass(raw) === 'quality') {
+      skippedQuality++;
+      if (!DRY) await bumpQuarantineAttempts(raw.source_url, 1);
+      console.warn(`  [QUALITY-HOLD] 质量不合格(${raw.reason || '?'})不入库待人工: ${(raw.title || raw.source_url || '').slice(0, 40)}`);
+      continue;
+    }
+
     const { art, ok: clean } = await reprocessOne(raw);
     if (clean) {
       if (DRY) { console.log(`[DRY] 合格: ${(art.title || '').slice(0, 40)}`); fixed++; affectedDays.add(art.date_key); continue; }
@@ -118,7 +154,10 @@ async function main() {
       console.log(`  [OK] 重跑入库: ${(art.title || '').slice(0, 46)}（takeaway ${String(art.takeaway).length}字）`);
     } else {
       refail++;
-      console.warn(`  [STILL-FAIL] ${(art.title || raw.source_url || '').slice(0, 40)} → 继续留在隔离表`);
+      // 防呆(c)：失败累加 attempts；常403死源 +2 加速搁置
+      if (!DRY) await bumpQuarantineAttempts(raw.source_url, isHeavy403(raw) ? 2 : 1);
+      const next = attempts + (isHeavy403(raw) ? 2 : 1);
+      console.warn(`  [STILL-FAIL] attempts=${next}${next >= MAX_ATTEMPTS ? ' → 终态搁置' : ''} ${(art.title || raw.source_url || '').slice(0, 40)}`);
     }
   }
 
@@ -146,7 +185,7 @@ async function main() {
   }
 
   console.log('\n=== 回补完成 ===');
-  console.log(`合格入库/修复: ${fixed} 条；仍失败: ${refail} 条；隔离表剩余: ${await countQuarantine()} 条${DRY ? '（DRY-RUN 未落库）' : ''}`);
+  console.log(`合格入库/修复: ${fixed} 条；仍失败: ${refail} 条；质量类挂起待人工: ${skippedQuality} 条；隔离表剩余(可重试): ${await countQuarantine()} 条${DRY ? '（DRY-RUN 未落库）' : ''}`);
 }
 
 main().catch(err => { console.error('回补脚本异常:', err); process.exit(1); });

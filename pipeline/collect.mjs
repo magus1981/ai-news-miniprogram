@@ -403,17 +403,31 @@ export async function probeLLMService(detail = null) {
 /**
  * 红灯分级（2026-10-12 纯函数，供回归测试）：
  *   fatal  —— 欠费/鉴权类隔离（沿用 fatalArrears 判据），重试无益，必须标红；
- *   batch  —— 批量异常：单轮隔离 ≥5 条，或 隔离/(新增+隔离) > 30%——质量闸门大面积
- *             拦截说明信源/解析出了系统性问题，必须标红叫人；
+ *   batch  —— 批量异常：单轮隔离 ≥5 条，或（本轮总数 ≥10 且 隔离/(新增+隔离) > 30%）——
+ *             质量闸门大面积拦截说明信源/解析出了系统性问题，必须标红叫人；
  *   routine—— 常规隔离（每天 2~3 条 missing_body 这类）：日志留痕即可，Actions 转绿。
  * 背景：10-08 起"隔离≥1 即标红"让连败噪声掩盖真故障（10-11/12 连红 12 轮无人接手）。
+ * 2026-11-15：比例判据加绝对量下限 total>=10——小批量增量轮（新增常 1~6 条）下隔离
+ * 1~3 条比例即破 30%，近 30 run 误标红 16 次（53%），数据其实已正常入库推送，纯颜色误报。
+ * 两条绝对量硬线保留：隔离>=5 仍红；零新增但有隔离（颗粒无收）仍红。
  */
 export function classifyQuarantineAlert({ quarantinedCount, admittedCount, fatalArrears = false }) {
   if (fatalArrears) return 'fatal';
-  const total = quarantinedCount + (admittedCount || 0);
+  const admitted = admittedCount || 0;
+  const total = quarantinedCount + admitted;
   const ratio = total > 0 ? quarantinedCount / total : 1;
-  if (quarantinedCount >= 5 || ratio > 0.3) return 'batch';
+  if (quarantinedCount >= 5) return 'batch';
+  if (admitted === 0 && quarantinedCount > 0) return 'batch'; // 颗粒无收必须叫人
+  if (total >= 10 && ratio > 0.3) return 'batch';
   return 'routine';
+}
+
+/** 小批量轮被降级的比例告警（不改变退出码，仅日志留痕，供 step summary/巡检统计） */
+export function isDowngradedSmallBatchAlert({ quarantinedCount, admittedCount }) {
+  const admitted = admittedCount || 0;
+  const total = quarantinedCount + admitted;
+  if (total <= 0 || total >= 10) return false;
+  return quarantinedCount < 5 && admitted > 0 && quarantinedCount / total > 0.3;
 }
 
 /**
@@ -834,6 +848,9 @@ async function main() {
       fatalArrears,
     });
     if (tier === 'routine') {
+      if (isDowngradedSmallBatchAlert({ quarantinedCount: quarantined.length, admittedCount: cleanArticles.length })) {
+        console.warn(`  [GATE] 小批量轮比例告警已降级（隔离 ${quarantined.length}/${quarantined.length + cleanArticles.length} >30% 但总数<10）：不标红，隔离表留待 reprocess-quarantine 回补`);
+      }
       console.warn(`  [GATE] 红灯分级=routine（隔离 ${quarantined.length} 条，本轮新增 ${cleanArticles.length} 条）：保持日志，本轮按成功退出`);
     } else {
       console.error(`  [GATE] 红灯分级=${tier}（隔离 ${quarantined.length} 条 / 新增 ${cleanArticles.length} 条）→ 本轮退出标红`);

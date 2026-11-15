@@ -474,11 +474,13 @@ export async function insertQuarantine(articles, defaultStage = 'summary') {
   return n;
 }
 
-/** 读取一批待重跑条目（可按发布日过滤），供 reprocess-quarantine.mjs 使用。 */
+/** 读取一批待重跑条目（可按发布日过滤），供 reprocess-quarantine.mjs 使用。
+ *  2026-11-15：过滤 attempts>=3 的终态搁置条目——重试上限防拉黑，死源不再反复冲撞。 */
 export async function getQuarantineBatch(limit = 50, dateKey = null) {
-  const where = dateKey ? `WHERE date_key = ?` : '';
-  const paramList = dateKey ? [dateKey] : [];
-  const sql = `SELECT * FROM articles_quarantine ${where} ORDER BY updated_at ASC LIMIT ?`;
+  const conds = ['(attempts IS NULL OR attempts < 3)'];
+  const paramList = [];
+  if (dateKey) { conds.push('date_key = ?'); paramList.push(dateKey); }
+  const sql = `SELECT * FROM articles_quarantine WHERE ${conds.join(' AND ')} ORDER BY updated_at ASC LIMIT ?`;
   const args = [...paramList, limit];
   try {
     if (LOCAL_MODE) return db.prepare(sql).all(...args);
@@ -499,6 +501,19 @@ export async function deleteQuarantineByUrl(sourceUrl) {
     return true;
   } catch (err) {
     console.warn('删除隔离条目失败:', err.message);
+    return false;
+  }
+}
+
+/** 重跑失败后累加 attempts（inc 可>1，常403死源加速搁置）。 */
+export async function bumpQuarantineAttempts(sourceUrl, inc = 1) {
+  const sql = `UPDATE articles_quarantine SET attempts = COALESCE(attempts, 0) + ?, updated_at = datetime('now') WHERE source_url = ?`;
+  try {
+    if (LOCAL_MODE) db.prepare(sql).run(inc, sourceUrl);
+    else await db.execute({ sql, args: [inc, sourceUrl] });
+    return true;
+  } catch (err) {
+    console.warn('累加 attempts 失败:', err.message);
     return false;
   }
 }

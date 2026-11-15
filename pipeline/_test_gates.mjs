@@ -55,7 +55,7 @@ const {
   QUARANTINE_REASONS, QUARANTINE_STAGE, MIN_MATERIAL_CHARS, SNIPPET_TRUST_MIN_CHARS,
 } = await import('./material.mjs');
 // 红灯分级纯函数（2026-10-12）：collect.mjs 顶部无副作用（main 有 isMain 保护），可安全 import
-const { classifyQuarantineAlert } = await import('./collect.mjs');
+const { classifyQuarantineAlert, isDowngradedSmallBatchAlert } = await import('./collect.mjs');
 const { generateSummary } = await import('./ai-summary.mjs');
 const { reviewSummary } = await import('./ai-review.mjs');
 const { applyClickbaitCeiling, CLICKBAIT_SCORE_CEILING, markFeatured } = await import('./ai-filter.mjs');
@@ -439,23 +439,50 @@ T(N2.label, '反例补强：短"标题复读"（<300字）无论包含还是等�
   eq(pickMaterial({ ...N2, content_snippet: partial }), null, '短片段包含关系占位（<200字下限亦拦）');
 });
 
-// ═════════════ 2026-10-12 红灯分级三档 ═════════════
-T('红灯分级', '常规隔离（隔离2/新增4，占比33%未过5条且…）——按公式 2/(2+4)=33%>30% → batch', () =>
-  eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 4 }), 'batch', '档位'));
+// ═════════════ 2026-10-12 红灯分级三档（2026-11-15 比例判据加 total>=10 绝对量下限） ═════════════
+T('红灯分级', '小批量：隔离2/新增4（总数6,占比33%）→ routine（旧判据误报，新判据转绿）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 4 }), 'routine', '档位'));
 T('红灯分级', '常规：隔离2/新增8 → 20% 且 <5 条 → routine（exit 0，Actions 转绿）', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 8 }), 'routine', '档位'));
 T('红灯分级', '常规：隔离3/新增17 → 15% → routine（run 720 那轮若新增足够即转绿）', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 3, admittedCount: 17 }), 'routine', '档位'));
 T('红灯分级', '批量：单轮隔离 ≥5 条（占比再低也红）', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 5, admittedCount: 20 }), 'batch', '档位'));
-T('红灯分级', '批量：隔离/(新增+隔离) >30%（2/5=40%）', () =>
-  eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 3 }), 'batch', '档位'));
-T('红灯分级', '边界：30% 整（3/10）不越线 → routine', () =>
+T('红灯分级', '小批量降级样例①：隔离3/新增6（总数9,占比33%）→ routine（旧判据 2/(2+4) 类误报）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 3, admittedCount: 6 }), 'routine', '档位'));
+T('红灯分级', '小批量降级样例②：隔离1/新增1（总数2,占比50%）→ routine（1/1 不再误报）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 1, admittedCount: 1 }), 'routine', '档位'));
+T('红灯分级', '批量：总数>=10 且占比>30%（4/8=33%）→ batch', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 4, admittedCount: 8 }), 'batch', '档位'));
+T('红灯分级', '批量：大面积仍报（隔离8/新增20，>=5 条）→ batch', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 8, admittedCount: 20 }), 'batch', '档位'));
+T('红灯分级', '边界：总数10 整占比30%（3/7）不越线 → routine', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 3, admittedCount: 7 }), 'routine', '档位'));
 T('红灯分级', 'fatal：欠费/鉴权类隔离优先级最高', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 1, admittedCount: 10, fatalArrears: true }), 'fatal', '档位'));
-T('红灯分级', '零新增（0入库+2隔离）→ 占比100% → batch（当日颗粒无收必须叫人）', () =>
+T('红灯分级', '零新增（0入库+2隔离）→ 颗粒无收 → batch（当日无收成必须叫人，不受下限影响）', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 0 }), 'batch', '档位'));
+
+// ── 小批量降级告警（不改退出码，仅日志留痕） ──
+T('红灯分级', '降级判定：3/6（总数9,占比>30%）→ 需要留痕日志', () =>
+  eq(isDowngradedSmallBatchAlert({ quarantinedCount: 3, admittedCount: 6 }), true, '降级'));
+T('红灯分级', '降级判定：2/8（占比20%）→ 不需要', () =>
+  eq(isDowngradedSmallBatchAlert({ quarantinedCount: 2, admittedCount: 8 }), false, '降级'));
+T('红灯分级', '降级判定：4/8（总数12>=10）→ 已是 batch，不算降级', () =>
+  eq(isDowngradedSmallBatchAlert({ quarantinedCount: 4, admittedCount: 8 }), false, '降级'));
+
+// ── 回补防呆：原因分类 / 403 死源标记（reprocess-quarantine.mjs） ──
+const { reasonClass, isHeavy403 } = await import('./reprocess-quarantine.mjs');
+T('回补防呆', 'ungrounded_summary → quality 类（绝不回流首页，仅标记待人工）', () =>
+  eq(reasonClass({ reason: 'ungrounded_summary' }), 'quality', '分类'));
+T('回补防呆', 'missing_body → fetch 类（走正常抓取+摘要+二审管线）', () =>
+  eq(reasonClass({ reason: 'missing_body: 无可用素材' }), 'fetch', '分类'));
+T('回补防呆', 'HTTP 403/timeout → fetch 类', () =>
+  eq(reasonClass({ reason: 'HTTP 403' }), 'fetch', '分类'));
+T('回补防呆', 'politico.com 标记常403死源（失败 attempts+2 加速搁置）', () =>
+  eq(isHeavy403({ source_url: 'https://www.politico.com/news/ai-x' }), true, '死源'));
+T('回补防呆', '非死源域名不标记', () =>
+  eq(isHeavy403({ source_url: 'https://www.reuters.com/tech/ai' }), false, '死源'));
 
 // ───────────────────────── 执行与报表 ─────────────────────────
 const results = [];
