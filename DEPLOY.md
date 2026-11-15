@@ -213,3 +213,5 @@ Unregister-ScheduledTask -TaskName AINewsCollect -Confirm:$false   # 云端就�
 | Vercel 端点 500 | 环境变量是否配了 production 且 redeploy 过；Functions 日志 |
 | Actions 里机器之心 [FAIL] | 机器之心 WAF 波动，重跑一次 workflow；连续失败则需检查爬虫 |
 | 小程序白屏 | config.js 的 ENV 和 apiBase；微信后台合法域名 |
+
+<!-- landing write-permission validation 2026-11-15T03:09:07Z -->
