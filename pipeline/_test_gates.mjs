@@ -460,8 +460,12 @@ T('红灯分级', '边界：总数10 整占比30%（3/7）不越线 → routine'
   eq(classifyQuarantineAlert({ quarantinedCount: 3, admittedCount: 7 }), 'routine', '档位'));
 T('红灯分级', 'fatal：欠费/鉴权类隔离优先级最高', () =>
   eq(classifyQuarantineAlert({ quarantinedCount: 1, admittedCount: 10, fatalArrears: true }), 'fatal', '档位'));
-T('红灯分级', '零新增（0入库+2隔离）→ 颗粒无收 → batch（当日无收成必须叫人，不受下限影响）', () =>
-  eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 0 }), 'batch', '档位'));
+T('红灯分级', '真·颗粒无收（0入库+3隔离）→ batch（多条隔离且零收成必须叫人）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 3, admittedCount: 0 }), 'batch', '档位'));
+T('红灯分级', '增量轮偶发（0入库+2隔离）→ routine（瞬时隔离不再误标红）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 2, admittedCount: 0 }), 'routine', '档位'));
+T('红灯分级', '增量轮偶发（0入库+1隔离）→ routine（本次夜间误红的真身）', () =>
+  eq(classifyQuarantineAlert({ quarantinedCount: 1, admittedCount: 0 }), 'routine', '档位'));
 
 // ── 小批量降级告警（不改退出码，仅日志留痕） ──
 T('红灯分级', '降级判定：3/6（总数9,占比>30%）→ 需要留痕日志', () =>
