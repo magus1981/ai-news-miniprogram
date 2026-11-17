@@ -409,7 +409,7 @@ export async function probeLLMService(detail = null) {
  * 背景：10-08 起"隔离≥1 即标红"让连败噪声掩盖真故障（10-11/12 连红 12 轮无人接手）。
  * 2026-11-15：比例判据加绝对量下限 total>=10——小批量增量轮（新增常 1~6 条）下隔离
  * 1~3 条比例即破 30%，近 30 run 误标红 16 次（53%），数据其实已正常入库推送，纯颜色误报。
- * 两条绝对量硬线保留：隔离>=5 仍红；零新增但有隔离（颗粒无收）仍红。
+ * 两条绝对量硬线保留：隔离>=5 仍红；零新增且隔离>=3（真·颗粒无收）仍红，偶发1~2条瞬时隔离转绿。
  */
 export function classifyQuarantineAlert({ quarantinedCount, admittedCount, fatalArrears = false }) {
   if (fatalArrears) return 'fatal';
@@ -417,7 +417,7 @@ export function classifyQuarantineAlert({ quarantinedCount, admittedCount, fatal
   const total = quarantinedCount + admitted;
   const ratio = total > 0 ? quarantinedCount / total : 1;
   if (quarantinedCount >= 5) return 'batch';
-  if (admitted === 0 && quarantinedCount > 0) return 'batch'; // 颗粒无收必须叫人
+  if (admitted === 0 && quarantinedCount >= 3) return 'batch'; // 真·颗粒无收(多条隔离)才叫人；增量轮偶发1~2条瞬时隔离不再误标红
   if (total >= 10 && ratio > 0.3) return 'batch';
   return 'routine';
 }
