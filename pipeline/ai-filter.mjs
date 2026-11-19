@@ -714,53 +714,50 @@ function spreadScores(k, min, max) {
 export function applyTierRanks(candidates, grades) {
   if (!Array.isArray(candidates) || !Array.isArray(grades)) return 0;
   const tierIndex = new Map(REFINE_TIERS.map((t, i) => [t.key, i]));
-  // 采集有效条目：index合法且档位在册；同index重复时只认第一条
-  const picked = new Map(); // candIdx -> {tier, rank, reason}
+  const picked = new Map();
   for (const g of grades) {
     const i = Number(g?.index) - 1;
     if (!Number.isInteger(i) || i < 0 || i >= candidates.length || picked.has(i)) continue;
     const tier = tierIndex.get(typeof g.tier === 'string' ? g.tier.trim() : '');
     if (tier === undefined) continue;
     const rank = Number(g.rank);
-    picked.set(i, {
-      i, tier,
-      rank: Number.isFinite(rank) && rank > 0 ? rank : Number.MAX_SAFE_INTEGER,
-      reason: typeof g.reason === 'string' ? g.reason.slice(0, 60) : '',
-    });
+    picked.set(i, { i, tier, rank: Number.isFinite(rank) && rank > 0 ? rank : Number.MAX_SAFE_INTEGER, reason: typeof g.reason === 'string' ? g.reason.slice(0, 60) : '' });
   }
   if (!picked.size) return 0;
   const byRank = (a, b) => a.rank - b.rank || a.i - b.i;
-  const buckets = REFINE_TIERS.map(() => []);
-  for (const e of [...picked.values()].sort(byRank)) buckets[e.tier].push(e);
-  // 配额压制（自高档向下，降入的可能把下一档也顶超配，故逐档顺序处理即天然级联）
-  for (let t = 0; t < buckets.length - 1; t++) {
-    const { quota, key } = REFINE_TIERS[t];
-    if (buckets[t].length <= quota) continue;
-    const overflow = buckets[t].splice(quota);
-    for (const e of overflow) e.demotedFrom = e.demotedFrom || key; // 级联时保留最初档位
-    buckets[t + 1] = buckets[t + 1].concat(overflow).sort(byRank);
-  }
-  // 档内拉开写回
+  // 2026-11-19 fix: scope the heavy/important tier quota cascade PER publish Beijing-day.
+  // pickRefineCandidates already scopes candidate intake by day (2026-08-14); leaving the
+  // quota cascade global let adjacent days' important stories steal each other's slots, so
+  // a fresh cross-day pool pushed TODAY's important items below quota -> demoted to 70-79 ->
+  // zero at 80+ -> today feed collapses. Model tier/rank are unchanged; only quota bucketing.
+  const dayOf = (idx) => {
+    const pub = candidates[idx]?.published_at;
+    let dk = ''; try { dk = beijingDayKey(pub); } catch { dk = ''; }
+    return dk || 'unknown';
+  };
+  const byDay = new Map();
+  for (const e of picked.values()) { const dk = dayOf(e.i); if (!byDay.has(dk)) byDay.set(dk, []); byDay.get(dk).push(e); }
   let applied = 0;
-  for (let t = 0; t < buckets.length; t++) {
-    const scores = spreadScores(buckets[t].length, REFINE_TIERS[t].min, REFINE_TIERS[t].max);
-    buckets[t].forEach((e, j) => {
-      const a = candidates[e.i];
-      let rough = null;
-      try { rough = a.score_detail ? JSON.parse(a.score_detail) : null; } catch { rough = null; }
-      a.ai_score = scores[j];
-      a.score_detail = JSON.stringify({
-        score: scores[j],
-        stage: 'refined',
-        tier: REFINE_TIERS[t].key,
-        rank: e.rank === Number.MAX_SAFE_INTEGER ? null : e.rank,
-        ...(e.demotedFrom ? { demoted_from: e.demotedFrom } : {}),
-        reason: e.reason,
-        role: a.role || 'primary',
-        rough, // 阶段1粗排子分，仅供复盘对照
+  for (const dayEntries of byDay.values()) {
+    const buckets = REFINE_TIERS.map(() => []);
+    for (const e of [...dayEntries].sort(byRank)) buckets[e.tier].push(e);
+    for (let t = 0; t < buckets.length - 1; t++) {
+      const { quota, key } = REFINE_TIERS[t];
+      if (buckets[t].length <= quota) continue;
+      const overflow = buckets[t].splice(quota);
+      for (const e of overflow) e.demotedFrom = e.demotedFrom || key;
+      buckets[t + 1] = buckets[t + 1].concat(overflow).sort(byRank);
+    }
+    for (let t = 0; t < buckets.length; t++) {
+      const scores = spreadScores(buckets[t].length, REFINE_TIERS[t].min, REFINE_TIERS[t].max);
+      buckets[t].forEach((e, jj) => {
+        const a = candidates[e.i];
+        let rough = null; try { rough = a.score_detail ? JSON.parse(a.score_detail) : null; } catch { rough = null; }
+        a.ai_score = scores[jj];
+        a.score_detail = JSON.stringify({ score: scores[jj], stage: 'refined', tier: REFINE_TIERS[t].key, rank: e.rank === Number.MAX_SAFE_INTEGER ? null : e.rank, ...(e.demotedFrom ? { demoted_from: e.demotedFrom } : {}), reason: e.reason, role: a.role || 'primary', rough });
+        applied++;
       });
-      applied++;
-    });
+    }
   }
   return applied;
 }
