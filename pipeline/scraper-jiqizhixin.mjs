@@ -8,7 +8,7 @@
  * - 站点WAF按TLS指纹拦截 Node 原生 fetch（实测几乎100%被重定向到"数据服务"推广页），
  *   而 curl(Schannel) 100% 放行，故HTTP层通过 child_process 调用系统 curl（Windows自带）
  * - timelines 查询的 union content 字段遇到 MemberOnlyContent（会员专享置顶条目）会触发服务端500，
- *   故分两步：先只取 id/contentType/cursor（不会500），再按连续Article段带content查询，跳过会员条目
+ *   故分两步：先只取 id/content_type/cursor（不会500），再按连续Article段带content查询，跳过会员条目
  * - publishedAt 格式为 "2026/07/22 16:58"（北京时间），手动按 +08:00 解析
  * 只取列表第一页，与量子位爬虫同一套超时/降级标准
  */
@@ -38,10 +38,10 @@ const MAX_ARTICLES = 20; // 只取第一页
 const TIMELINE_SIZE = 30; // 时间线窗口（含少量非文章条目，多取一些兜底）
 
 // 第一步：只取ID/类型/游标（不触碰union content，避免会员条目导致服务端500）
-const TIMELINE_IDS_QUERY = `{ timelines(first: ${TIMELINE_SIZE}) { edges { cursor node { id contentType } } } }`;
+const TIMELINE_IDS_QUERY = `{ timelines(first: ${TIMELINE_SIZE}) { edges { cursor node { id content_type } } } }`;
 // 第二步：按连续Article段取内容
 const SEGMENT_QUERY = (first, after) =>
-  `{ timelines(first: ${first}${after ? `, after: "${after}"` : ''}) { edges { node { id contentType content { __typename ...on Article { path title publishedAt description simpleContent } } } } } }`;
+  `{ timelines(first: ${first}${after ? `, after: "${after}"` : ''}) { edges { node { id content_type content { __typename ...on Article { path title publishedAt description simpleContent } } } } } }`;
 
 /**
  * 调用系统curl（WAF对Node fetch的TLS指纹几乎全部拦截，curl稳定放行）
@@ -185,7 +185,7 @@ export async function scrapeJiqizhixin(source) {
     let current = null;
     for (let i = 0; i < edges.length; i++) {
       const edge = edges[i];
-      if (edge.node.contentType === 'Article') {
+      if (edge.node.content_type === 'Article') {
         if (!current) {
           current = { after: i > 0 ? edges[i - 1].cursor : null, count: 0 };
           segments.push(current);
@@ -206,7 +206,7 @@ export async function scrapeJiqizhixin(source) {
         const data = await gql(SEGMENT_QUERY(want, seg.after), ctx);
         for (const edge of data?.timelines?.edges || []) {
           const c = edge.node.content;
-          if (edge.node.contentType !== 'Article' || !c || !c.path) continue;
+          if (edge.node.content_type !== 'Article' || !c || !c.path) continue;
           const url = SITE + c.path;
           const title = (c.title || '').trim();
           if (!title || seenUrls.has(url)) continue;
