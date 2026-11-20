@@ -526,6 +526,22 @@ export const SOURCES = [
     aiSuspectedBypass: true,
   },
   {
+    name: 'CNBC Technology',
+    // 资本市场/AI公司IPO·上市·财报·并购第一手英文财经源；补 AI 垂直源对资本事件的盲区（11-20）
+    url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrpr01&id=19854910',
+    userAgent: 'Mozilla/5.0 (compatible; AINewsBot/1.0)',
+    category: 'funding', language: 'en', source_type: 'media',
+    fetchIntervalHours: 2, aiSuspectedBypass: true,
+  },
+  {
+    name: 'Yahoo Finance',
+    // 美股行情/大型IPO首日/估值/并购，覆盖 Anthropic 上市这类资本市场重磅（11-20）
+    url: 'https://finance.yahoo.com/news/rssindex',
+    userAgent: 'Mozilla/5.0 (compatible; AINewsBot/1.0)',
+    category: 'funding', language: 'en', source_type: 'media',
+    fetchIntervalHours: 2, aiSuspectedBypass: true,
+  },
+  {
     name: 'The Register',
     // 企业IT/云/基础设施故障与安全的深度报道，Atom 订阅源（rss-parser 兼容）。安全头条栏目 feed。
     // v2 拍板点6：限频 fetchIntervalHours=2，抑制候选灌水。
