@@ -162,6 +162,9 @@ export const AI_INCIDENT_TRIGGERS = [
   'service disruption', 'system failure', 'infrastructure failure', 'meltdown', 'crash',
   'unavailable', 'breach', 'security breach', 'cyberattack', 'cyber-attack', 'ransomware',
   'vulnerability', 'data leak', 'data breach', 'recall',
+  // 资本/重大商业事件（11-20 加）：头部AI公司的上市/估值等由 org+词 双闸命中，天然防误触
+  'IPO', '首次公开募股', '上市', '挂牌', '敲钟', '募资', '估值', '市值', '并购', '要约收购', '超额认购',
+  'listing', 'initial public offering', 'valuation', 'merger', 'acquisition', 'tender offer',
 ];
 
 // 新接入的综合/IT运维/安全信源的 source_name 名单：这些源报道主体广泛，稿件命中触发词即可反向推断
@@ -774,6 +777,7 @@ export function applyRoleCeiling(list) {
   if (!Array.isArray(list)) return 0;
   let capped = 0;
   for (const a of list) {
+    if (a?.ai_suspected_incident) continue; // 反向通道重大事件豁免衍生封顶（11-20）
     if (a?.role !== 'derivative') continue;
     if (!(a.ai_score > DERIVATIVE_SCORE_CEILING)) continue;
     const before = a.ai_score;
@@ -808,6 +812,7 @@ export function applyClickbaitCeiling(list) {
   if (!Array.isArray(list)) return 0;
   let capped = 0;
   for (const a of list) {
+    if (a?.ai_suspected_incident) continue; // 反向通道重大事件豁免标题党封顶（11-20）
     const title = String(a?.title || '') + String(a?.original_title || '');
     const hit = title.match(CLICKBAIT_TITLE_RE);
     if (!hit) continue;
