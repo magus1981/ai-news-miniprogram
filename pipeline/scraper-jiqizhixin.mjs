@@ -9,7 +9,7 @@
  *   而 curl(Schannel) 100% 放行，故HTTP层通过 child_process 调用系统 curl（Windows自带）
  * - timelines 查询的 union content 字段遇到 MemberOnlyContent（会员专享置顶条目）会触发服务端500，
  *   故分两步：先只取 id/content_type/cursor（不会500），再按连续Article段带content查询，跳过会员条目
- * - publishedAt 格式为 "2026/07/22 16:58"（北京时间），手动按 +08:00 解析
+ * - published_at 格式为 "2026/07/22 16:58"（北京时间），手动按 +08:00 解析
  * 只取列表第一页，与量子位爬虫同一套超时/降级标准
  */
 import { execFile } from 'child_process';
@@ -41,7 +41,7 @@ const TIMELINE_SIZE = 30; // 时间线窗口（含少量非文章条目，多取
 const TIMELINE_IDS_QUERY = `{ timelines(first: ${TIMELINE_SIZE}) { edges { cursor node { id content_type } } } }`;
 // 第二步：按连续Article段取内容
 const SEGMENT_QUERY = (first, after) =>
-  `{ timelines(first: ${first}${after ? `, after: "${after}"` : ''}) { edges { node { id content_type content { __typename ...on Article { path title publishedAt description simpleContent } } } } } }`;
+  `{ timelines(first: ${first}${after ? `, after: "${after}"` : ''}) { edges { node { id content_type content { __typename ...on Article { path title published_at description simple_content } } } } } }`;
 
 /**
  * 调用系统curl（WAF对Node fetch的TLS指纹几乎全部拦截，curl稳定放行）
@@ -211,7 +211,7 @@ export async function scrapeJiqizhixin(source) {
           const title = (c.title || '').trim();
           if (!title || seenUrls.has(url)) continue;
           seenUrls.add(url);
-          const snippet = (c.description || c.simpleContent || title).trim();
+          const snippet = (c.description || c.simple_content || title).trim();
           articles.push({
             title,
             source_name: source.name,
@@ -220,7 +220,7 @@ export async function scrapeJiqizhixin(source) {
             language: source.language,
             source_type: source.source_type,
             content_snippet: snippet.slice(0, 2000),
-            published_at: parsePublishedAt(c.publishedAt), // ISO串或null，由collect.mjs时效过滤统一处理
+            published_at: parsePublishedAt(c.published_at), // ISO串或null，由collect.mjs时效过滤统一处理
           });
         }
       } catch (segErr) {
