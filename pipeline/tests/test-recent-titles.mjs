@@ -98,7 +98,7 @@ tx();
 raw.close();
 
 // —— 走真实代码路径（db.mjs 在 import 时就按上面的路径打开库）——
-const { getRecentTitles } = await import('../db.mjs');
+const { getRecentTitles, getRecentTitlePool, closeLocalDB } = await import('../db.mjs');
 const pool = await getRecentTitles(10);
 
 const joined = pool.join('\n');
@@ -113,7 +113,27 @@ check('对照池：窗口最旧一天不得被幽灵挤掉（LIMIT 200 截断）
 check('对照池：超窗老稿（30 天前）仍被窗口挡住', !joined.includes('OUT_OF_WINDOW'), '本次改动不得顺手放宽对照窗口');
 check('对照池条数：只含窗口内真实稿 190 条', pool.length === 190, `实际 ${pool.length} 条`);
 
+// —— 2026-10-09 新增：代表权要判"同事件谁更强"，对照池必须带得上分数与发布日 ——
+// getRecentTitles 现在是 getRecentTitlePool 的一层投影，本组用例同时盯住两件事：
+// 投影没走样（同数同序），且带分数的池子继承同一条 unknown 排除口径。
+// 少了后者，两道闸就会各读一份事实——这正是 10-08 幽灵稿事故的形状。
+const rich = await getRecentTitlePool(10);
+const richTitles = rich.map(p => p.title).join('\n');
+check('带分数对照池：同样不得含 unknown 幽灵稿（与标题池共用一条 SQL 口径）', !/GHOST_/.test(richTitles));
+check('带分数对照池：与标题池同源同序（条数一致、逐条标题一致）',
+  rich.length === pool.length && rich.every((p, i) => p.title === pool[i]),
+  `实际 ${rich.length} 条 / 标题池 ${pool.length} 条`);
+check('带分数对照池：每条都取得出 ai_score 与规范 date_key（代表权判断的前提）',
+  rich.every(p => typeof p.ai_score === 'number' && /^\d{4}-\d{2}-\d{2}$/.test(String(p.date_key))));
+check('带分数对照池：反例——幽灵桶那 20 条 88 分稿一条都不许出现（它们分数更高，最容易被当成"已发布证据"压死真头条）',
+  !rich.some(p => Number(p.ai_score) === 88));
+check('带分数对照池：id 齐备（同日顶替要靠 id 精确锁定被汰条目）',
+  rich.every(p => Number.isInteger(p.id)));
+
 // —— 还原 ——
+// 必须先释放 db.mjs 持有的句柄：Windows 上句柄没关，下面的 rmSync/renameSync 会 EBUSY，
+// 本闸会在 data/ 里留下临时库 + .pretest，且下一次运行直接起不来（实测踩过）。
+closeLocalDB();
 rmSync(dbPath, { force: true });
 rmSync(dbPath + '-wal', { force: true });
 rmSync(dbPath + '-shm', { force: true });

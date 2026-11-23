@@ -15,7 +15,10 @@ import {
   selectByQuota, policyQuotaPicks, beijingDayKey, pickRefineCandidates, MAX_REPLACE_PER_ROUND, BACKFILL_MAX,
   DERIVATIVE_SCORE_CEILING, FEATURED_MIN_SCORE, TITLE_DUP_THRESHOLD, REFINE_TIERS,
   isPlausibleCrossDupPair, extractDupSubjects, batchReleaseSignal,
+  normalizePriorPool, applyDupVerdicts, MAX_SUPERSEDE_PER_ROUND,
 } from '../ai-filter.mjs';
+import { isStrongerReport, supersedeKind } from '../event-representative.mjs';
+import { applyFollowupOutcome, FOLLOWUP_FLOOR, FOLLOWUP_SCORE_MARGIN } from '../ai-dedup.mjs';
 import { verifyQuote, normalizeKeyPoints } from '../ai-summary.mjs';
 import { isRoundupCandidate, buildSubEvents, parseSplitResponse } from '../roundup-split.mjs';
 import { pickMissedCandidates, parseAuditResponse } from '../miss-audit.mjs';
@@ -899,6 +902,147 @@ T('成批信号: 正例命中/反例不命中（千禧年单项、金额、季�
     && !batchReleaseSignal('OpenAI宣布解决一个千禧年大奖难题')
     && !batchReleaseSignal('AI computing startup Lambda to raise $4B ahead of planned IPO')
     && !batchReleaseSignal('North America’s Startup Funding Falls In Q3');
+});
+
+// ── 同事件代表权（2026-10-09 用户定调：同事件保留 ai_score 高者为代表）──
+// 事故原型：run 696（北京 10-09 09:05）92 分一手稿《OpenAI 一夜攻克722个数学难题》
+// 被 69 分的 10-07 二手稿《OpenAI发布722篇数学成果》指认判重后一律丢弃，
+// 当日 ai_score>=80 归零 → /api/dates featured=0，首页精选栏整天空掉。
+const HEAVY = { id: 2350, title: 'OpenAI发布722篇数学成果，涵盖多个未解难题', ai_score: 69, date_key: '2026-10-07', category: 'model' };
+const STRONG = { title: 'OpenAI 一夜攻克722个数学难题，准黎曼猜想已被证明', ai_score: 92, date_key: '2026-10-09' };
+const poolOf = (...refs) => refs.map(r => ({ category: 'model', ...r }));
+
+T('代表权: 92分候选强于69分对照稿 → 判更强', () => isStrongerReport(92, 69) === true);
+T('代表权: 反例——候选更弱不翻转', () => isStrongerReport(73, 89) === false);
+T('代表权: 反例——同分不翻转（宁漏勿错，维持"优先保留已发布篇"）', () => isStrongerReport(80, 80) === false);
+T('代表权: 反例——任一方缺分/坏分一律不翻转（对照池只给标题时必须退回旧行为）', () =>
+  isStrongerReport(92, null) === false && isStrongerReport(undefined, 69) === false
+  && isStrongerReport('abc', 69) === false && isStrongerReport(92, '') === false);
+
+T('代表权: 更强且对照稿在往日 → cross_day（历史日页不回改）', () =>
+  supersedeKind({ ...STRONG }, HEAVY) === 'cross_day');
+T('代表权: 更强且同日同事件 → same_day（走顶替，不占两个位）', () =>
+  supersedeKind({ ...STRONG, date_key: '2026-10-07' }, HEAVY) === 'same_day');
+T('代表权: 反例——同日但对照稿是政策稿，一律不顶（政策稿有保底配额，删它会打穿）', () =>
+  supersedeKind({ ...STRONG, date_key: '2026-10-07' }, { ...HEAVY, category: 'policy' }) === null);
+T('代表权: 反例——任一方没有发布日，无法判是否同页 → 不翻转', () =>
+  supersedeKind({ ...STRONG, date_key: '' }, HEAVY) === null && supersedeKind({ ...STRONG }, { ...HEAVY, date_key: '' }) === null);
+T('代表权: 反例——对照稿不存在 → 不翻转、不抛异常', () =>
+  supersedeKind({ ...STRONG }, null) === null && supersedeKind({ ...STRONG }, undefined) === null);
+
+T('对照池归一: 标题数组也能进来（退回旧口径：无分数）', () => {
+  const p = normalizePriorPool(['稿A', '稿B']);
+  return p.length === 2 && p[0].title === '稿A' && p[0].ai_score === null && p[0].date_key === '';
+});
+T('对照池归一: 同标题重复只留第一条（池按 date_key DESC，先出现者即最近一次发布）', () => {
+  const p = normalizePriorPool([
+    { title: '稿A', ai_score: 90, date_key: '2026-10-08', id: 2 },
+    { title: '稿A', ai_score: 60, date_key: '2026-10-05', id: 1 },
+  ]);
+  return p.length === 1 && p[0].id === 2;
+});
+T('对照池归一: 反例——空标题被剔除，垃圾输入返回空数组不得抛异常', () =>
+  normalizePriorPool(['', null, { title: '好稿', ai_score: 70 }]).length === 1
+  && normalizePriorPool(undefined).length === 0 && normalizePriorPool('字符串不是数组').length === 0);
+
+T('跨期查重【事故反例】: 92分一手稿不得被69分往日弱稿挡掉——留任当日代表并串联相关阅读', () => {
+  const cand = { ...STRONG };
+  const v = applyDupVerdicts([cand], [{ b: 1, a: 1 }], poolOf(HEAVY));
+  return v.kept.length === 1 && v.dropped.length === 0
+    && v.supersededCrossDay.length === 1 && v.kept[0].ai_score === 92
+    && v.kept[0].__supersedes?.id === 2350
+    && String(v.kept[0].related_to).includes('2350'); // 读者侧要能看到旧的那一篇
+});
+T('跨期查重【正例·现状不变】: 候选不比已发布篇强 → 照旧丢弃', () => {
+  const v = applyDupVerdicts([{ title: '弱稿', ai_score: 73, date_key: '2026-10-09' }], [{ b: 1, a: 1 }],
+    poolOf({ title: '强稿', ai_score: 89, date_key: '2026-10-06', id: 9, category: 'model' }));
+  return v.kept.length === 0 && v.dropped.length === 1 && v.dropped[0].__dup_of === 1;
+});
+T('跨期查重【反例】: 对照池只带标题（无分数）时一律丢弃，不得因为"判不出更强"就全放行', () => {
+  const v = applyDupVerdicts([{ ...STRONG }], [{ b: 1, a: 1 }], normalizePriorPool([HEAVY.title]));
+  return v.kept.length === 0 && v.dropped.length === 1;
+});
+T('跨期查重: 同日更强 → 打 __replaces 顶替（写库阶段先删被汰条目再插新条目）', () => {
+  const v = applyDupVerdicts([{ title: '新稿', ai_score: 92, date_key: '2026-10-07' }], [{ b: 1, a: 1 }],
+    poolOf({ ...HEAVY, date_key: '2026-10-07' }));
+  return v.kept.length === 1 && v.replacedSameDay.length === 1 && v.kept[0].__replaces?.id === 2350;
+});
+T('跨期查重【反例】: 同日政策稿不被顶——宁留两条也不打穿保底配额', () => {
+  const v = applyDupVerdicts([{ title: '新稿', ai_score: 92, date_key: '2026-10-07' }], [{ b: 1, a: 1 }],
+    poolOf({ ...HEAVY, date_key: '2026-10-07', category: 'policy' }));
+  return v.kept.length === 0 && v.dropped.length === 1 && !v.replacedSameDay.length;
+});
+T('跨期查重: 一条新稿只允许删一条在库稿——已被日配额选过victim的不再叠第二次删除，但强稿必须留下', () => {
+  const cand = { title: '新稿', ai_score: 92, date_key: '2026-10-07', __replaces: { id: 777, title: '配额汰换对象', ai_score: 61 } };
+  const v = applyDupVerdicts([cand], [{ b: 1, a: 1 }], poolOf({ ...HEAVY, date_key: '2026-10-07' }));
+  return v.kept.length === 1 && v.replacedSameDay.length === 0
+    && v.kept[0].__replaces.id === 777          // 原有汰换对象不被覆盖
+    && v.kept[0].__supersedes?.id === 2350;     // 同事件旧稿只串联、不二次删库
+});
+T(`跨期查重: 同日删库单轮封顶 ${MAX_SUPERSEDE_PER_ROUND} 条——封顶只约束删除，不约束代表权（超额的强稿照样留下，只是不再删第二条）`, () => {
+  const cands = Array.from({ length: MAX_SUPERSEDE_PER_ROUND + 1 }, (_, i) => ({ title: `新稿${i}`, ai_score: 92, date_key: '2026-10-07' }));
+  const pool = cands.map((_, i) => ({ ...HEAVY, id: 2350 + i, date_key: '2026-10-07' }));
+  const pairs = cands.map((_, i) => ({ b: i + 1, a: i + 1 }));
+  const v = applyDupVerdicts(cands, pairs, pool);
+  return v.replacedSameDay.length === MAX_SUPERSEDE_PER_ROUND
+    && v.dropped.length === 0 && v.kept.length === cands.length
+    && v.kept[MAX_SUPERSEDE_PER_ROUND].__supersedes && !v.kept[MAX_SUPERSEDE_PER_ROUND].__replaces;
+});
+T('跨期查重【反例】: 无有效 a 指认/越界配对一律不动候选（沿用 10-08 的收口，不得因新逻辑放宽）', () => {
+  const cands = [{ title: 'A', ai_score: 92, date_key: '2026-10-09' }, { title: 'B', ai_score: 88, date_key: '2026-10-09' }];
+  const v = applyDupVerdicts(cands, [{ b: 1 }, { b: 9, a: 1 }, { b: 2, a: 99 }, { b: 2, a: 0 }], poolOf(HEAVY));
+  return v.kept.length === 2 && v.dropped.length === 0 && v.supersededCrossDay.length === 0;
+});
+T('跨期查重: 同一候选被配两个 a 时只认第一个指认（行为可预期）', () => {
+  const pool = poolOf({ ...HEAVY, id: 111 }, { ...HEAVY, id: 222, date_key: '2026-10-06', ai_score: 60 });
+  const v = applyDupVerdicts([{ ...STRONG }], [{ b: 1, a: 2 }, { b: 1, a: 1 }], pool);
+  return v.supersededCrossDay.length === 1 && v.supersededCrossDay[0].__supersedes.id === 222;
+});
+T('跨期查重: 名单顺序保持分数降序原样（代表权翻转不得重排入选名单）', () => {
+  const cands = [{ title: 'A', ai_score: 92, date_key: '2026-10-09' }, { title: 'B', ai_score: 70, date_key: '2026-10-09' },
+    { title: 'C', ai_score: 66, date_key: '2026-10-09' }];
+  const pool = poolOf({ ...HEAVY, date_key: '2026-10-06' }, { title: 'B', ai_score: 89, date_key: '2026-10-06', id: 5, category: 'model' });
+  const v = applyDupVerdicts(cands, [{ b: 1, a: 1 }, { b: 2, a: 2 }], pool);
+  return v.kept.map(a => a.title).join(',') === 'A,C' && v.dropped.length === 1;
+});
+
+T('第二道闸【事故反例】: 92分候选不得被69分对照稿压成54分再撞地板线——只放开第一道是没用的', () => {
+  const c = { ...STRONG, is_featured: 1 };
+  const out = applyFollowupOutcome(c, HEAVY);
+  return out === 'supersede_cross' && c.ai_score === 92 && c.is_featured === 1 && !c.is_followup;
+});
+T('第二道闸【正例·现状不变】: 更弱的跟进稿仍照旧压到对照稿之下15分并取消精选', () => {
+  const c = { title: '跟进分析', ai_score: 78, date_key: '2026-10-09', is_featured: 1 };
+  const out = applyFollowupOutcome(c, { ...HEAVY, ai_score: 89 });
+  return out === 'followup' && c.ai_score === 89 - FOLLOWUP_SCORE_MARGIN && c.is_followup === 1 && c.is_featured === 0;
+});
+T('第二道闸: 压分后低于地板线的重复回声照样剔除（2026-08-24 Astra 事故的保护不许松动）', () => {
+  const c = { title: '复述稿', ai_score: 66, date_key: '2026-10-09' };
+  const out = applyFollowupOutcome(c, { ...HEAVY, ai_score: 70 });
+  return out === 'floor_drop' && c.ai_score < FOLLOWUP_FLOOR && String(c.__floor_reason).includes('地板线');
+});
+T('第二道闸: 同日更强 → 走 __replaces 顶替，避免同事件同日双双精选', () => {
+  const c = { title: '新稿', ai_score: 92, date_key: '2026-10-07' };
+  const out = applyFollowupOutcome(c, { ...HEAVY, date_key: '2026-10-07' });
+  return out === 'supersede_same' && c.__replaces?.id === 2350 && c.ai_score === 92;
+});
+T('第二道闸: same_event（纯换来源复述）不看分数一律剔——代表权只适用于有实质新信息的 followup', () => {
+  // 该判定在调用方（verdict==='same_event' 分支），此处断言"更强也不代表能留下"的语义边界
+  const c = { ...STRONG };
+  const out = applyFollowupOutcome(c, HEAVY);
+  return out !== 'followup' && c.ai_score === 92; // 走的是翻转分支，same_event 由上层直接 dropped
+});
+T('两道闸口径一致: 同一对(92候选 vs 69往日稿)在跨期查重与跨期去重里得出同一种结局', () => {
+  const v = applyDupVerdicts([{ ...STRONG }], [{ b: 1, a: 1 }], poolOf(HEAVY));
+  const c2 = { ...STRONG };
+  return v.supersededCrossDay.length === 1 && applyFollowupOutcome(c2, HEAVY) === 'supersede_cross'
+    && v.supersededCrossDay[0].ai_score === c2.ai_score;
+});
+T('两道闸都不许改历史日页: 跨日翻转只记 related_to/__supersedes，不产生任何 __replaces', () => {
+  const v = applyDupVerdicts([{ ...STRONG }], [{ b: 1, a: 1 }], poolOf(HEAVY));
+  const c = { ...STRONG };
+  applyFollowupOutcome(c, HEAVY);
+  return !v.kept[0].__replaces && !c.__replaces;
 });
 
 // ── 执行 ──

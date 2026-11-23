@@ -19,6 +19,7 @@
  */
 import { pathToFileURL } from 'url';
 import { canonicalizeName } from './tag-canonical.mjs';
+import { supersedeKind } from './event-representative.mjs';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -153,36 +154,79 @@ export async function dedupAgainstRecent(candidates, recentEvents) {
         return;
       }
 
-      // followup：降级保留
-      if (ref && typeof ref.ai_score === 'number' && typeof c.ai_score === 'number') {
-        // 压到原文章之下至少15分：绝不可能反过来压过原稿进精选
-        const before = c.ai_score;
-        c.ai_score = Math.min(c.ai_score, ref.ai_score - 15);
-        // 同步评分明细（透明化：列表分与明细分不一致会掩盖降级链，见2026-08-13事故）
-        try {
-          const d = JSON.parse(c.score_detail || '{}');
-          c.score_detail = JSON.stringify({ ...d, score: c.ai_score, demoted_by_dedup: { from: before, ref_id: ref.id } });
-        } catch { /* 明细非JSON时跳过 */ }
-      }
-      // 跟进稿地板线（2026-08-24事故：Astra暂停链被dedup压到50/35/20分仍全部入库，
-      // 前台API无分数下限，20分的重复回声直接暴露给用户）——主事件已入库，
-      // 压到"可看"档(60)以下的跟进稿没有独立阅读价值，直接剔除
-      if (typeof c.ai_score === 'number' && c.ai_score < 60) {
-        dropped.push({ ...c, __related_id: v.related_id, __reason: `跟进稿压分至${c.ai_score}(<60地板线)剔除` });
-        return;
-      }
-      c.is_followup = 1;
-      c.is_featured = 0; // 跟进稿强制不精选
-      c.related_to = ref
-        ? JSON.stringify({ id: ref.id, title: ref.title, date_key: ref.date_key })
-        : '';
+      // followup：谁做代表、要不要压分，收口在纯函数 applyFollowupOutcome（口径与跨期查重同源）
       c.__related_id = v.related_id;
       c.__reason = v.reason || '';
+      if (applyFollowupOutcome(c, ref, { alreadyReplaces: Boolean(c.__replaces) }) === 'floor_drop') {
+        dropped.push({ ...c, __related_id: v.related_id, __reason: c.__floor_reason || `跟进稿压分至${c.ai_score}(<${FOLLOWUP_FLOOR}地板线)剔除` });
+        return;
+      }
       kept.push(c);
     });
   }
 
   return { kept, dropped };
+}
+
+/** 跟进稿压分幅度：压到对照稿之下至少这么多分（2026-08 定，防止跟进稿反压原稿进精选） */
+export const FOLLOWUP_SCORE_MARGIN = 15;
+/** 跟进稿地板线（2026-08-24 事故：Astra 暂停链被压到 50/35/20 分仍全部入库，前台无分数下限，20 分的重复回声直接暴露给用户） */
+export const FOLLOWUP_FLOOR = 60;
+
+/**
+ * followup 判定的代码侧收口（纯函数，供测试；就地改写候选，返回结局标签）
+ *
+ * 2026-10-09 之前的行为是**无条件**降级：候选分数压到对照稿之下至少 15 分 + 强制不精选。
+ * 对分数盲视的代价与跨期查重同一回事——92 分的一手新稿被 69 分旧稿压成 54 分，
+ * 再被 60 分地板线直接剔掉。只放开第一道闸没有用，杀戮只是换个阶段发生，
+ * 所以代表权判断必须与 ai-filter.crossRoundDedup 取自同一个 event-representative。
+ *
+ * 结局标签：
+ *   'supersede_cross' 候选强于往日对照稿 → 候选做当日代表，不压分、保留精选资格，
+ *                     历史日页不回改，只记 related_to 串联（__supersedes 供日志对账）
+ *   'supersede_same'  候选强于同日对照稿 → 打 __replaces，写库阶段顶替旧条目（同事件同日不占两个位）
+ *   'followup'        维持旧行为：压分 + is_followup=1 + 强制不精选 + related_to
+ *   'floor_drop'      压分后低于地板线 → 剔除（c.__floor_reason 带原因）
+ * @param {Object} c - 候选文章
+ * @param {Object|null} ref - 近期对照稿（来自 getRecentEvents，含 id/date_key/ai_score/category）
+ * @param {Object} [opts]
+ * @param {boolean} [opts.alreadyReplaces] - 候选已被日配额汰换选过 victim，不再叠第二次删除
+ * @returns {'supersede_cross'|'supersede_same'|'followup'|'floor_drop'}
+ */
+export function applyFollowupOutcome(c, ref, opts = {}) {
+  const kind = supersedeKind(c, ref);
+  if (kind === 'cross_day' || kind === 'same_day') {
+    c.__supersedes = { id: ref.id, title: ref.title, ai_score: ref.ai_score, date_key: ref.date_key };
+    c.related_to = JSON.stringify({ id: ref.id, title: ref.title, date_key: ref.date_key });
+    // 同日同事件才顶替（删一条在库稿）；已被日配额汰换选过 victim 的候选不再叠第二次删除，
+    // 与 ai-filter.applyDupVerdicts 同规则：封顶只约束删除，不约束代表权。
+    if (kind === 'same_day' && !opts.alreadyReplaces) {
+      c.__replaces = { id: ref.id, title: ref.title, ai_score: ref.ai_score };
+      return 'supersede_same';
+    }
+    return 'supersede_cross';
+  }
+
+  if (ref && typeof ref.ai_score === 'number' && typeof c.ai_score === 'number') {
+    // 压到原文章之下至少15分：绝不可能反过来压过原稿进精选
+    const before = c.ai_score;
+    c.ai_score = Math.min(c.ai_score, ref.ai_score - FOLLOWUP_SCORE_MARGIN);
+    // 同步评分明细（透明化：列表分与明细分不一致会掩盖降级链，见2026-08-13事故）
+    try {
+      const d = JSON.parse(c.score_detail || '{}');
+      c.score_detail = JSON.stringify({ ...d, score: c.ai_score, demoted_by_dedup: { from: before, ref_id: ref.id } });
+    } catch { /* 明细非JSON时跳过 */ }
+  }
+  if (typeof c.ai_score === 'number' && c.ai_score < FOLLOWUP_FLOOR) {
+    c.__floor_reason = `跟进稿压分至${c.ai_score}(<${FOLLOWUP_FLOOR}地板线)剔除`;
+    return 'floor_drop';
+  }
+  c.is_followup = 1;
+  c.is_featured = 0; // 跟进稿强制不精选
+  c.related_to = ref
+    ? JSON.stringify({ id: ref.id, title: ref.title, date_key: ref.date_key })
+    : '';
+  return 'followup';
 }
 
 /**

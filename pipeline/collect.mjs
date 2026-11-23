@@ -17,7 +17,7 @@ import { readResponseText, mojibakeRatio } from './charset.mjs';
 import { generateSummaries } from './ai-summary.mjs';
 import { reviewSummaries } from './ai-review.mjs';
 import { generateDailyIntro } from './ai-intro.mjs';
-import { initDB, insertArticles, getRecentTitles, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine, findExistingByTitleNorm, findExistingByEventNorm, bumpMergedCount } from './db.mjs';
+import { initDB, insertArticles, getRecentTitles, getRecentTitlePool, getExistingUrls, saveDailyIntro, recordSourceHealth, getSourceHealthHistory, getHoursSinceLastFetch, getDayCounts, getDayArticlesForQuota, deleteArticleById, getArticlesByDate, getRecentEvents, insertQuarantine, findExistingByTitleNorm, findExistingByEventNorm, bumpMergedCount } from './db.mjs';
 import { dedupAgainstRecent } from './ai-dedup.mjs';
 import { gateFeaturedMaterialTier } from './material.mjs';
 import { checkFreshness } from './ai-freshness.mjs';
@@ -710,9 +710,12 @@ async function main() {
     dayContexts[d] = { existingCount: c.count, existingFeatured: c.featured, featuredMinScore, dayArticles: await getDayArticlesForQuota(d) };
     if (c.count > 0) console.log(`  发布日 ${d}: 已入库 ${c.count} 条（精选 ${c.featured} 条），本轮作增量处理`);
   }
-  const recentTitles = await getRecentTitles(RECENT_TITLE_DAYS);
-  if (recentTitles.length) console.log(`旧闻对照: 载入近${RECENT_TITLE_DAYS}天已入库标题 ${recentTitles.length} 条`);
-  const selected = await filterArticles(candidateArticles, recentTitles, dayContexts);
+  // 对照池只查一次、按带分数的形状取（getRecentTitlePool 是唯一事实源，标题是它的投影）：
+  // 跨期查重要判"同事件谁做代表"就必须知道对照稿的分数与发布日，光给标题它只能一律丢弃。
+  const recentPool = await getRecentTitlePool(RECENT_TITLE_DAYS);
+  const recentTitles = recentPool.map(p => p.title).filter(Boolean);
+  if (recentTitles.length) console.log(`旧闻对照: 载入近${RECENT_TITLE_DAYS}天已入库标题 ${recentTitles.length} 条（带分数，跨期查重可判代表权）`);
+  const selected = await filterArticles(candidateArticles, recentTitles, dayContexts, undefined, recentPool);
   if (selected.length === 0) {
     console.log('AI筛选后无达标文章（或各日配额已满），退出');
     // 零入选正是最该对账的时刻：全部被杀掉时，重大新闻可能混在其中（2026-08-15事故）
@@ -783,6 +786,15 @@ async function main() {
     console.log(`同事件跟进降级: ${followupCount} 条（保留但不精选）`);
     for (const f of deduped.filter(a => a.is_followup)) {
       console.log(`  [FOLLOW] ${f.title.slice(0, 45)} -> 关联 ${f.related_to || '?'} | ${f.__reason || ''}`);
+    }
+  }
+  // 代表权翻转必须可见：否则"92分为啥上了、69分为啥让位"事后无从对账（与 [FOLLOW]/[CROSS-DROP] 同哲学）
+  const superseded = deduped.filter(a => a.__supersedes && !a.__replaces);
+  if (superseded.length) {
+    console.log(`同事件代表权翻转: ${superseded.length} 条新稿强于往日对照稿，由新稿做当日代表（历史日页不回改）`);
+    for (const s of superseded) {
+      const r = s.__supersedes;
+      console.log(`  [SUPERSEDE] [${s.ai_score}分] ${s.title.slice(0, 45)} ← 往日 ${r.date_key} 的 ${r.ai_score}分《${String(r.title || '').slice(0, 35)}》`);
     }
   }
   console.log('');

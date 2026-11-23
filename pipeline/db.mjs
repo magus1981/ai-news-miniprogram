@@ -36,6 +36,19 @@ if (LOCAL_MODE) {
 }
 
 /**
+ * 释放本地 SQLite 句柄。
+ * 为什么要有这个导出：Windows 上只要句柄还开着，测试脚本就删不掉自己建的临时库
+ * （rmSync/renameSync 直接 EBUSY），跑完在 data/ 下留下 articles.db + .pretest 一堆残留，
+ * 下一次运行还会因为"既有库要暂存"而再次 EBUSY —— 回归闸因此变成一次性用品。
+ * 云端模式没有本地句柄，调用它是空操作，不会抛异常。
+ */
+export function closeLocalDB() {
+  try {
+    if (LOCAL_MODE && db && typeof db.close === 'function') db.close();
+  } catch { /* 已经关过：释放锁这件事失败不该让测试判定失败 */ }
+}
+
+/**
  * 初始化数据表
  */
 export async function initDB() {
@@ -184,7 +197,22 @@ export async function initDB() {
  * 回归闸见 tests/test-recent-titles.mjs（未修代码上必 FAIL）。
  */
 export async function getRecentTitles(days = 3) {
-  const sql = `SELECT title, original_title FROM articles
+  const pool = await getRecentTitlePool(days);
+  return pool.map(p => p.title).filter(Boolean);
+}
+
+/**
+ * 近期已发布对照池（带分数/日期/类别）——2026-10-09 加。
+ *
+ * 为什么要把分数带出来：crossRoundDedup 原先只看标题，判重之后"一律丢弃候选、优先保留
+ * 已发布篇"，它甚至不知道对照稿是 69 分还是 92 分。代表权要按分数判（见
+ * event-representative.mjs），事实源就必须在这儿补齐——否则第一道闸连判断的资格都没有。
+ * 口径与 getRecentTitles 完全同源（同一个 SQL、同一个 'unknown' 排除、同一个 DESC+200 截断），
+ * getRecentTitles 现在只是本函数的一层投影，两道闸不会再拿到不一致的对照池。
+ * @returns {Array<{title:string,id:number,date_key:string,ai_score:number|null,category:string}>}
+ */
+export async function getRecentTitlePool(days = 3) {
+  const sql = `SELECT id, title, original_title, date_key, ai_score, category FROM articles
     WHERE date_key >= date('now', '-${days} days')
       AND date_key != 'unknown'
     ORDER BY date_key DESC LIMIT 200`;
@@ -196,7 +224,15 @@ export async function getRecentTitles(days = 3) {
       const result = await db.execute(sql);
       rows = result.rows;
     }
-    return rows.map(r => r.original_title || r.title).filter(Boolean);
+    return rows
+      .map(r => ({
+        title: r.original_title || r.title,
+        id: r.id,
+        date_key: r.date_key,
+        ai_score: r.ai_score,
+        category: r.category,
+      }))
+      .filter(p => p.title);
   } catch (err) {
     console.warn('读取近期标题失败（不影响采集，仅失去旧闻对照）:', err.message);
     return [];
@@ -771,7 +807,9 @@ export async function getArticlesByDate(dateKey) {
  * 同一事件跨天二次报道正是漏网重灾区，窗口太短认不出前情）
  */
 export async function getRecentEvents(days = 10, limit = 120) {
-  const sql = `SELECT id, date_key, title, event_norm, summary, ai_score, tags
+  // category 必须查出来：代表权翻转在同日会走 __replaces 删掉对照稿，
+  // 而政策稿是保底配额机制的产物（event-representative 明令不顶）——少了这一列那道保护就是空话
+  const sql = `SELECT id, date_key, title, event_norm, summary, ai_score, category, tags
     FROM articles
     WHERE category != 'noise' AND date_key >= date('now', '-${days} days')
     ORDER BY date_key DESC, ai_score DESC LIMIT ${limit}`;

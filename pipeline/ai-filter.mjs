@@ -2,6 +2,7 @@
  * AI筛选评分 - 调用通义千问(DashScope)对文章进行重要性评分
  * 标准：权威性、准确性、及时性
  */
+import { supersedeKind } from './event-representative.mjs';
 
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
 const API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
@@ -235,7 +236,7 @@ async function callQwen(messages, temperature = 0.3, model = 'qwen-plus') {
  * @param {number} [now] - 可注入时钟（供测试/突发新鲜度判定）
  * @returns {Array} - 带评分与 date_key(发布北京日) 的文章，按分数降序
  */
-export async function filterArticles(articles, recentTitles = [], dayContexts = {}, now = Date.now()) {
+export async function filterArticles(articles, recentTitles = [], dayContexts = {}, now = Date.now(), recentPool = []) {
   if (articles.length === 0) return [];
 
   // AI疑似事件反向推断预检（评分前）：命中「白名单公司+宕机/安全触发词」或「专业运维/安全源+触发词」
@@ -455,9 +456,14 @@ export async function filterArticles(articles, recentTitles = [], dayContexts = 
     // 同轮查重(finalDedupePass)只看本轮名单，看不到已入库文章；而"已推送标题→压低旧闻分"是软约束，
     // AI偶尔漏判（如昨天"发布开放权重"vs今天"开源2.8万亿"同事件不同标题，被重新打高分甚至进精选）。
     // recentTitles 已含当日及近期各发布日的标题，跨发布日通用，故直接用它做对照。
+    // 2026-10-09 加 recentPool：跨期查重要判"谁做代表"就得知道对照稿的分数与发布日，
+    // 光有标题它只能一律丢弃。没带池子（旧调用方/测试）时退回标题，行为与今天一致。
     const priorTitles = [...new Set(Array.isArray(recentTitles) ? recentTitles : [])].filter(Boolean);
-    if (priorTitles.length) {
-      selected = await crossRoundDedup(selected, priorTitles);
+    const priorPool = normalizePriorPool(
+      (Array.isArray(recentPool) && recentPool.length) ? recentPool : priorTitles,
+    );
+    if (priorPool.length) {
+      selected = await crossRoundDedup(selected, priorPool);
       if (selected.length === 0) {
         console.log('AI筛选完成: 入选文章均与近期已发布重复，本轮无新增');
         return [];
@@ -1342,8 +1348,127 @@ ${list}
 }
 
 /**
+ * 对照池归一（纯函数，供测试）：把"标题字符串"或"带分数的池条目"统一成同一种形状，并按标题去重。
+ * 为什么要统一：crossRoundDedup 历史上只拿到标题数组，它连对照稿是 69 分还是 92 分都不知道，
+ * 所以"一律丢弃候选"是它唯一能做的决定。代表权要按分数判（见 event-representative.mjs），
+ * 事实源就得补齐；而旧的调用方（含 tests/test-llm-rules.mjs）仍在传字符串，
+ * 这里让两种输入都能进来——**只有标题时 ai_score/date_key 为空，判断自动退回旧行为**，
+ * 不会因为加了新参数就把没带分数的调用全变成"放行"。
+ * 去重保留第一条：池按 date_key DESC 取，先出现的那条就是最近一次发布。
+ * @param {Array<string|Object>} entries
+ * @returns {Array<{title:string,id:number|string|null,date_key:string,ai_score:number|null,category:string}>}
+ */
+export function normalizePriorPool(entries) {
+  const out = [];
+  const seen = new Set();
+  for (const e of Array.isArray(entries) ? entries : []) {
+    const item = typeof e === 'string'
+      ? { title: e, id: null, date_key: '', ai_score: null, category: '' }
+      : {
+        title: String(e?.title || ''),
+        id: e?.id ?? null,
+        date_key: String(e?.date_key || ''),
+        ai_score: e?.ai_score ?? null,
+        category: String(e?.category || ''),
+      };
+    if (!item.title || seen.has(item.title)) continue;
+    seen.add(item.title);
+    out.push(item);
+  }
+  return out;
+}
+
+/** 单轮"同日同事件顶替"上限：与日配额汰换同量级收口，防止一轮里成批删在库稿 */
+export const MAX_SUPERSEDE_PER_ROUND = 5;
+
+/**
+ * 跨期查重的代码侧收口（纯函数，供测试）——把"模型给的配对"翻译成"留谁、剔谁"。
+ *
+ * 2026-10-09 口径变更（用户定调：同事件保留 ai_score 高者为代表）：
+ *   旧：候选一旦被指认与已发布某条同属一次发布 → 一律丢弃（对分数盲视）。
+ *       实测 92 分一手稿《OpenAI 一夜攻克722个数学难题》被 69 分的 10-07 二手稿挡在门外，
+ *       当日 >=80 归零、首页精选栏空掉（/api/dates featured=0）。
+ *   新：更强的一方做代表，落法按发布日分开——
+ *       · 跨日（对照稿在往日）：候选留下做当日代表，记 __supersedes；**历史日页不回改**，
+ *         旧稿仍属于它那一天，两侧靠 related_to 串联。
+ *       · 同日：候选带 __replaces 顶替对照稿，沿用 selectByQuota 已验证的汰换写库通道
+ *         （写库阶段先删被汰条目再插新条目），避免同一事件在同一天占两个位、双双精选。
+ *         政策类对照稿一律不顶——政策稿是保底配额机制的产物，删它会打穿那道机制。
+ *       · 候选不比对照稿强 / 对照稿没带分数 → 维持现状丢弃。
+ * 一个候选只认第一个有效指认（模型偶尔给同一 b 配多个 a，取先者，行为可预期）。
+ * @param {Array} candidates - 本轮入选文章（分数降序，条目需 date_key/ai_score）
+ * @param {Array<{b:number,a:number}>} pairs - 模型输出并经 parseDupPairs 收口的配对（1-based）
+ * @param {Array} priorPool - normalizePriorPool 后的对照池（下标即 A 组编号）
+ * @param {Object} [opts]
+ * @param {number} [opts.maxSupersede=MAX_SUPERSEDE_PER_ROUND] - 同日顶替条数上限
+ * @returns {{kept:Array, dropped:Array, supersededCrossDay:Array, replacedSameDay:Array}}
+ */
+export function applyDupVerdicts(candidates, pairs, priorPool, opts = {}) {
+  const maxSupersede = Number.isFinite(opts.maxSupersede) ? opts.maxSupersede : MAX_SUPERSEDE_PER_ROUND;
+  const pool = Array.isArray(priorPool) ? priorPool : [];
+  const pubN = Math.min(pool.length, 120); // 与提示词里的 [A1..An] 截断口径一致
+  const pairsByB = new Map();
+  for (const p of Array.isArray(pairs) ? pairs : []) {
+    if (!Number.isInteger(p.b) || p.b < 1 || p.b > candidates.length) continue;
+    if (!Number.isInteger(p.a) || p.a < 1 || p.a > pubN) continue;
+    if (!pairsByB.has(p.b)) pairsByB.set(p.b, p.a);
+  }
+
+  const kept = [];
+  const dropped = [];
+  const supersededCrossDay = [];
+  const replacedSameDay = [];
+  let sameDayUsed = 0;
+
+  candidates.forEach((c, i) => {
+    const aIdx = pairsByB.get(i + 1);
+    if (!aIdx) { kept.push(c); return; }
+    const ref = pool[aIdx - 1];
+    const kind = supersedeKind(c, ref);
+    const refInfo = {
+      id: ref.id, title: ref.title, ai_score: ref.ai_score, date_key: ref.date_key,
+    };
+    if (kind === 'cross_day') {
+      c.__supersedes = refInfo;
+      // 串联当场就落定：不能指望第二道闸（ai-dedup）一定也认出同事件，
+      // 它漏判时读者仍该在"相关阅读"里看到旧的那一篇
+      if (!c.related_to) {
+        c.related_to = JSON.stringify({ id: ref.id, title: ref.title, date_key: ref.date_key });
+      }
+      supersededCrossDay.push(c);
+      kept.push(c);
+      return;
+    }
+    if (kind === 'same_day') {
+      // 顶替＝删一条在库稿，受单轮封顶约束；但**封顶只约束删除，不约束代表权**：
+      // 已经因日配额汰换删过一条、或本轮删除额度用尽时，宁可让同事件同日双条并存
+      // （靠 related_to 串联 + 日志对账），也绝不因为"不想删第二条"而把 92 分强稿杀掉——
+      // 那等于用自限机制复现这次要修那个病（弱稿占位、强稿出局）。
+      if (!c.__replaces && sameDayUsed < maxSupersede) {
+        c.__replaces = { id: ref.id, title: ref.title, ai_score: ref.ai_score };
+        sameDayUsed++;
+        replacedSameDay.push(c);
+        kept.push(c);
+        return;
+      }
+      c.__supersedes = refInfo; // 留下做代表，但不再额外删库
+      if (!c.related_to) {
+        c.related_to = JSON.stringify({ id: ref.id, title: ref.title, date_key: ref.date_key });
+      }
+      supersededCrossDay.push(c);
+      kept.push(c);
+      return;
+    }
+    dropped.push({ ...c, __dup_of: aIdx, __ref: refInfo });
+  });
+
+  return { kept, dropped, supersededCrossDay, replacedSameDay };
+}
+
+/**
  * 跨期查重：把本轮入选文章与"近期已发布文章（当日+近期）"做一次专门的同事件比对。
- * 命中已发布事件的候选一律丢弃（已发布篇有摘要、可能已进精选，优先保留）。
+ * 命中已发布事件的候选：更强的一方做代表（见 applyDupVerdicts 与 event-representative.mjs）；
+ * 候选不比已发布篇强时维持旧行为——丢弃候选、优先保留已发布篇（它已有摘要、可能已进精选）。
  *
  * 2026-10-08 改：判重从"主题聚合"逼回"一对一指认同一次发布动作"（v2）。
  * 原提示词只要模型说"同一主体的同一核心事件域"就会整批剔除，实测把当日头条级新事件杀掉：
@@ -1360,12 +1485,15 @@ ${list}
  * 同批双口径（722篇 vs 372结果族）4/4 仍判重、EmbeddingGemma 回归 3/3 仍判重——见
  * tests/exp-cross-dedup-v2.mjs。任何异常仍静默跳过（不影响主流程）。
  * @param {Array} candidates - 本轮入选文章（分数降序）
- * @param {Array<string>} publishedTitles - 近期（当日+近RECENT_TITLE_DAYS天）已入库文章标题
+ * @param {Array<string|Object>} publishedEntries - 近期（当日+近RECENT_TITLE_DAYS天）已入库文章
+ *   对照池：可以是标题字符串（退回旧行为：命中即丢弃），也可以是 getRecentTitlePool 的条目
+ *   （带 ai_score/date_key/id/category，才有判"谁做代表"的资格）
  */
-export async function crossRoundDedup(candidates, publishedTitles = []) {
-  if (!candidates.length || !publishedTitles.length) return candidates;
+export async function crossRoundDedup(candidates, publishedEntries = []) {
+  const pool = normalizePriorPool(publishedEntries);
+  if (!candidates.length || !pool.length) return candidates;
   // 截断120条：覆盖"当日已发布+近10天"（每日10-20条），标题按时间倒序，截断只丢最旧的
-  const pubList = publishedTitles.slice(0, 120).map((t, i) => `[A${i + 1}] ${t}`).join('\n');
+  const pubList = pool.slice(0, 120).map((p, i) => `[A${i + 1}] ${p.title}`).join('\n');
   const candList = candidates.map((a, i) => `[B${i + 1}] ${a.title}`).join('\n');
   const prompt = `A组是近期已发布的文章，B组是"待发布候选"。请找出B组中与A组某一条报道**同一次发布动作**的条目（这些候选属于旧闻重报，应剔除）。
 
@@ -1397,23 +1525,23 @@ ${candList}
     if (!m) return candidates;
     const pairs = parseDupPairs(m[0]);
     if (!pairs.length) return candidates;
-    // 硬收口：只有指认出有效 A 配对的候选才允许被剔除（无 a / 越界的判重一律不采纳）
-    const pubN = Math.min(publishedTitles.length, 120);
-    const inRange = p => Number.isInteger(p.b) && p.b >= 1 && p.b <= candidates.length
-      && Number.isInteger(p.a) && p.a <= pubN;
-    // 第二道闸（2026-10-10）：指认到了具体某一条，不代表指认得合理。
-    // 48b7feb 把"聚合判重"逼回"一对一指认"后，成批发布那条由三轮全杀变三轮全保留，
-    // 但防线全在提示词里——模型自觉，温度 0.1 也会飘。此处给代码层装上否决权：
+    // 第一道代码闸（2026-10-10，77df23f）：指认到了具体某一条，不代表指认得合理。
+    // 48b7feb 把"聚合判重"逼回"一对一指认"后，防线全在提示词里——模型自觉，温度 0.1 也会飘。
     // 主体对不上、或候选是成批可数产出而所指认的A只是单项/旧闻评论，该 pair 作废、候选保留。
-    const drop = new Map();
+    // 2026-11-23 合并代表权修复：否决闸只作废"不合理的指认"，合理的指认交给 applyDupVerdicts
+    // 判"谁做代表"（更强一方留下，同日顶替/跨日留任），不再一律丢弃候选。
+    const pubN = Math.min(pool.length, 120);
+    const inRange = p => Number.isInteger(p.b) && p.b >= 1 && p.b <= candidates.length
+      && Number.isInteger(p.a) && p.a >= 1 && p.a <= pubN;
+    const plausiblePairs = [];
     const vetoed = [];
     for (const p of pairs.filter(inRange)) {
-      const aTitle = String(publishedTitles[p.a - 1] || '');
+      const aTitle = String(pool[p.a - 1]?.title || '');
       const bTitle = String(candidates[p.b - 1]?.title || '');
       const gate = isPlausibleCrossDupPair(bTitle, aTitle);
       if (gate.ok) {
-        if (!drop.has(p.b - 1)) drop.set(p.b - 1, p.a);
-      } else if (!drop.has(p.b - 1)) {
+        plausiblePairs.push(p);
+      } else {
         vetoed.push({ ...p, aTitle, bTitle, reason: gate.reason });
       }
     }
@@ -1421,18 +1549,31 @@ ${candList}
     for (const v of vetoed) {
       console.log(`  [CROSS-VETO] B${v.b}《${v.bTitle.slice(0, 40)}》↔A${v.a}《${v.aTitle.slice(0, 40)}》指认不合理（${v.reason}），保留候选`);
     }
-    if (!drop.size) return candidates;
-    console.log(`跨期查重: 剔除与近期已发布同一次发布的旧闻重报 ${drop.size} 条`);
+    // 第二道代码闸（2026-10-09 代表权口径）：收口交给纯函数 applyDupVerdicts；
+    // 更强的一方做代表（同日走 __replaces 顶替 / 跨日留任当日代表），其余维持"丢弃候选"
+    const verdict = applyDupVerdicts(candidates, plausiblePairs, pool);
+    if (!verdict.dropped.length && !verdict.supersededCrossDay.length && !verdict.replacedSameDay.length) {
+      return candidates;
+    }
+    if (verdict.dropped.length) {
+      console.log(`跨期查重: 剔除与近期已发布同一次发布的旧闻重报 ${verdict.dropped.length} 条`);
+    }
     // 被杀必须可见（与漏报对账同哲学）：只记总数无法事后定位误杀
     // （2026-08-28晚: 腾讯Hy4开源/量子位Claude机械臂疑似死于此层却无痕迹可查）
     // 2026-10-08 追加：必须连同"它跟哪一条判的重"一起打出来，否则误杀无法事后定位
-    for (const i of [...drop.keys()].sort((x, y) => x - y)) {
-      const c = candidates[i];
-      const aIdx = drop.get(i);
-      const aTitle = String(publishedTitles[aIdx - 1] || '').slice(0, 46);
-      console.log(`  [CROSS-DROP] [${c?.ai_score}分] ${String(c?.title || '').slice(0, 50)} ← 指认A${aIdx}《${aTitle}》`);
+    // 2026-10-09 追加：代表权翻转同样要可见，否则"92分为什么上了、69分为什么让位"无从对账
+    for (const d of verdict.dropped) {
+      console.log(`  [CROSS-DROP] [${d?.ai_score}分] ${String(d?.title || '').slice(0, 50)} ← 指认A${d.__dup_of}《${String(d.__ref?.title || '').slice(0, 46)}》`);
     }
-    return candidates.filter((_, i) => !drop.has(i));
+    for (const c of verdict.supersededCrossDay) {
+      const r = c.__supersedes;
+      console.log(`  [CROSS-SUPERSEDE] [${c.ai_score}分] ${String(c.title || '').slice(0, 50)} 取代往日 ${r.date_key} 的 ${r.ai_score}分《${String(r.title || '').slice(0, 40)}》做当日代表（历史日页不回改，靠 related_to 串联）`);
+    }
+    for (const c of verdict.replacedSameDay) {
+      const r = c.__replaces;
+      console.log(`  [CROSS-REPLACE] [${c.ai_score}分] ${String(c.title || '').slice(0, 50)} 顶替同日 ${r.ai_score}分《${String(r.title || '').slice(0, 40)}》(#${r.id})——同事件同日不占两个位`);
+    }
+    return verdict.kept;
   } catch (err) {
     console.warn('跨轮查重失败，跳过（不影响主流程）:', err.message);
     return candidates;
